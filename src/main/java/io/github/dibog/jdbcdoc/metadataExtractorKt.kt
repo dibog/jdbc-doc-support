@@ -1,19 +1,25 @@
 package io.github.dibog.jdbcdoc
 
-import io.github.dibog.jdbcdoc.entities.FullColumnName
-import io.github.dibog.jdbcdoc.entities.FullConstraintName
-import io.github.dibog.jdbcdoc.entities.FullTableName
-import io.github.dibog.jdbcdoc.entities.TmpCheckConstraint
-import io.github.dibog.jdbcdoc.entities.TmpColumnInfo
-import io.github.dibog.jdbcdoc.entities.TmpForeignKeyConstraint
-import io.github.dibog.jdbcdoc.entities.TmpPKOrUniqueConstraint
-import io.github.dibog.jdbcdoc.entities.TmpPrimaryKeyConstraint
-import io.github.dibog.jdbcdoc.entities.TmpUniqueConstraint
+import io.github.dibog.jdbcdoc.entities.*
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.jdbc.core.ResultSetExtractor
+import java.lang.IllegalStateException
 import java.sql.ResultSet
 
-private fun JdbcTemplate.fetchAllPkOrUniqueConstraintsOf(catalog: String, schema: String, type: String): List<TmpPKOrUniqueConstraint> {
+
+fun JdbcTemplate.fetchAllPrimaryKeyConstraintsOf(catalog: String, schema: String): Set<PrimaryKeyConstraint> {
+    return fetchAllConstraintsOf(catalog, schema, "PRIMARY KEY")
+            .map { it.toPrimaryKeyConstraint() }
+            .toSet()
+}
+
+fun JdbcTemplate.fetchAllUniqueConstraintsOf(catalog: String, schema: String): Set<UniqueConstraint> {
+    return fetchAllConstraintsOf(catalog, schema, "UNIQUE")
+            .map { it.toUniqueConstraint() }
+            .toSet()
+}
+
+private fun JdbcTemplate.fetchAllConstraintsOf(catalog: String, schema: String, type: String): Set<PKOrUniqueConstraint> {
     return query("""
             select tc.*, ccu.column_name
             from information_schema.table_constraints tc,
@@ -23,25 +29,23 @@ private fun JdbcTemplate.fetchAllPkOrUniqueConstraintsOf(catalog: String, schema
               and tc.CONSTRAINT_CATALOG=ccu.CONSTRAINT_CATALOG
               and tc.CONSTRAINT_SCHEMA=ccu.CONSTRAINT_SCHEMA
               and tc.CONSTRAINT_NAME=ccu.CONSTRAINT_NAME
-            """.trimIndent()
-            , arrayOf(catalog.toUpperCase(), schema.toUpperCase(), type.toUpperCase())
-    ) { rs, _ ->
-        val fullColumnName = rs.extractFullColumnName()
-        val fullConstraintName = rs.extractFullConstraintName()
+            """.trimIndent(),
+            arrayOf(catalog.toUpperCase(), schema.toUpperCase(), type.toUpperCase()),
+            ResultSetExtractor<Set<PKOrUniqueConstraint>> { rs ->
+                val result = mutableMapOf<FullConstraintName, PKOrUniqueConstraint.Builder>()
 
-        TmpPKOrUniqueConstraint(fullColumnName, fullConstraintName)
-    }
+                while(rs.next()) {
+                    val fullConstraintName = rs.extractFullConstraintName()
+                    val fullColumnName = rs.extractFullColumnName()
+                    result.getOrPut(fullConstraintName,  { PKOrUniqueConstraint.Builder(fullConstraintName) })
+                            .addColumnName(fullColumnName)
+                }
+
+                result.values.map { it.build() }.toSet()
+            })
 }
 
-fun JdbcTemplate.fetchAllUniqueConstraintsOf(catalog: String, schema: String): List<TmpUniqueConstraint> {
-    return fetchAllPkOrUniqueConstraintsOf(catalog, schema, "unique").map { it.toUniqueConstraint() }
-}
-
-fun JdbcTemplate.fetchAllPrimaryKeyConstraintsOf(catalog: String, schema: String): List<TmpPrimaryKeyConstraint> {
-    return fetchAllPkOrUniqueConstraintsOf(catalog, schema, "primary key").map { it.toPrimaryKeyConstraint() }
-}
-
-fun JdbcTemplate.fetchAllCheckConstraintsOf(catalog: String, schema: String): List<TmpCheckConstraint> {
+fun JdbcTemplate.fetchAllCheckConstraintsOf(catalog: String, schema: String): Set<CheckConstraint> {
     return query("""
             select ccu.*, cc.CHECK_CLAUSE
             from information_schema.check_constraints cc, 
@@ -49,14 +53,43 @@ fun JdbcTemplate.fetchAllCheckConstraintsOf(catalog: String, schema: String): Li
             where ccu.table_catalog=? and ccu.table_schema=?
               and ccu.CONSTRAINT_CATALOG=cc.CONSTRAINT_CATALOG and ccu.CONSTRAINT_SCHEMA=cc.CONSTRAINT_SCHEMA and ccu.CONSTRAINT_NAME=cc.CONSTRAINT_NAME
         """.trimIndent(),
+            arrayOf(catalog.toUpperCase(), schema.toUpperCase()),
+            ResultSetExtractor<Set<CheckConstraint>> { rs ->
+                val result = mutableMapOf<FullConstraintName, CheckConstraint.Builder>()
+                while(rs.next()) {
+                    val fullConstraintName = rs.extractFullConstraintName()
+                    val fullColumnName = rs.extractFullColumnName()
+                    val checkClause = rs.getString("CHECK_CLAUSE")
+
+                    result.getOrPut(fullConstraintName,  { CheckConstraint.Builder(fullConstraintName, checkClause) })
+                            .addColumnName(fullColumnName)
+                }
+
+                result.values.map { it.build() }.toSet()
+            }
+    )
+}
+
+fun JdbcTemplate.fetchAllForeignKeyConstraintsFor(catalog: String, schema: String): Set<ForeignKeyConstraint> {
+    val srcKeys = fetchAllConstraintsOf(catalog, schema, "FOREIGN KEY").associateBy { it.fullConstraintName }
+    val destKeys = (fetchAllConstraintsOf(catalog, schema, "PRIMARY KEY")+
+            fetchAllConstraintsOf(catalog, schema, "UNIQUE")).associateBy { it.fullConstraintName }
+
+    return query("""
+            select * 
+            from information_schema.REFERENTIAL_CONSTRAINTS
+            where CONSTRAINT_CATALOG=?
+              and CONSTRAINT_SCHEMA=?
+            """.trimIndent(),
             arrayOf(catalog.toUpperCase(), schema.toUpperCase())
     ) { rs, _ ->
-        val fullColumnName = rs.extractFullColumnName()
-        val fullConstraintName = rs.extractFullConstraintName()
-        val checkClause = rs.getString("CHECK_CLAUSE")
+        val srcConstraintName = rs.extractFullConstraintName()
+        val destConstraintName = rs.extractFullConstraintName("UNIQUE_")
+        val src = srcKeys[srcConstraintName] ?: throw IllegalStateException("Unknown foreign key '$srcConstraintName'")
+        val dest = destKeys[destConstraintName] ?: throw IllegalStateException("Unknown target key '$srcConstraintName'")
 
-        TmpCheckConstraint(fullColumnName, fullConstraintName, checkClause)
-    }
+        ForeignKeyConstraint(srcConstraintName, src.fullColumnNames, dest.fullColumnNames)
+    }.toSet()
 }
 
 fun ResultSet.extractFullTableName(prefix: String=""): FullTableName {
@@ -80,7 +113,7 @@ fun ResultSet.extractFullConstraintName(prefix: String=""): FullConstraintName {
     return FullConstraintName(catalog, schema, constraint)
 }
 
-fun JdbcTemplate.fetchAllColumnInfosFor(catalog: String, schema: String): List<TmpColumnInfo> {
+fun JdbcTemplate.fetchAllColumnInfosFor(catalog: String, schema: String): List<ColumnInfo> {
     return query("""
             select *
             from information_schema.columns
@@ -93,42 +126,7 @@ fun JdbcTemplate.fetchAllColumnInfosFor(catalog: String, schema: String): List<T
         val dataType = rs.getString("DATA_TYPE")
         val isNullable = rs.getString("IS_NULLABLE")=="YES"
 
-        TmpColumnInfo(fullColumnName, dataType, isNullable)
-    }
-}
-
-fun JdbcTemplate.fetchAllForeignKeyConstraintsFor(catalog: String, schema: String): List<TmpForeignKeyConstraint> {
-    return query("""
-            select 
-                   ccu.TABLE_CATALOG SRC_TABLE_CATALOG,
-                   ccu.TABLE_SCHEMA SRC_TABLE_SCHEMA,
-                   ccu.TABLE_NAME as SRC_TABLE_NAME, 
-                   ccu.COLUMN_NAME as SRC_COLUMN_NAME, 
-                   ccu.CONSTRAINT_CATALOG CONSTRAINT_CATALOG,
-                   ccu.CONSTRAINT_SCHEMA CONSTRAINT_SCHEMA,
-                   ccu.CONSTRAINT_NAME CONSTRAINT_NAME,
-                   kcu.TABLE_CATALOG DEST_TABLE_CATALOG,
-                   kcu.TABLE_SCHEMA DEST_TABLE_SCHEMA,
-                   kcu.TABLE_NAME DEST_TABLE_NAME,
-                   kcu.COLUMN_NAME DEST_COLUMN_NAME
-            from information_schema.constraint_column_usage ccu,
-                 information_schema.REFERENTIAL_CONSTRAINTS rc,
-                 information_schema.KEY_COLUMN_USAGE kcu
-            where ccu.table_catalog=? and ccu.table_schema=?
-              and ccu.CONSTRAINT_CATALOG=rc.CONSTRAINT_CATALOG
-              and ccu.CONSTRAINT_SCHEMA=rc.CONSTRAINT_SCHEMA
-              and ccu.CONSTRAINT_NAME=rc.CONSTRAINT_NAME
-              and kcu.CONSTRAINT_CATALOG=rc.UNIQUE_CONSTRAINT_CATALOG
-              and kcu.CONSTRAINT_SCHEMA=rc.UNIQUE_CONSTRAINT_SCHEMA
-              and kcu.CONSTRAINT_NAME=rc.UNIQUE_CONSTRAINT_NAME
-            """.trimIndent(),
-            arrayOf(catalog.toUpperCase(), schema.toUpperCase())
-    ) { rs, _ ->
-        val fullSrcColumnName = rs.extractFullColumnName("SRC_")
-        val fullConstraintName = rs.extractFullConstraintName()
-        val fullDestColumnName = rs.extractFullColumnName("DEST_")
-
-        TmpForeignKeyConstraint(fullSrcColumnName, fullDestColumnName, fullConstraintName)
+        ColumnInfo(fullColumnName, dataType, isNullable)
     }
 }
 

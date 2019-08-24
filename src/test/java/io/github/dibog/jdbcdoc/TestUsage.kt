@@ -29,7 +29,7 @@ class TestUsage {
         id int not null,
         foo_id int not null,
         my_check varchar(20),
-        CONSTRAINT FK_FOO2_ID FOREIGN KEY (id) REFERENCES test.foo1(id),
+        CONSTRAINT FK_FOO2_ID FOREIGN KEY (foo_id) REFERENCES test.foo1(id),
         CONSTRAINT PK_FOO2 PRIMARY KEY (id),
         CONSTRAINT CH_CHECK CHECK (my_check!='foo' AND id<20)
     );
@@ -75,7 +75,7 @@ class TestUsage {
             column("name", "CHARACTER VARYING", NOT_NULL)
 
             primaryKey("PK_FOO1", "id")
-            unique("name", "name")
+            unique("UC_FOO1_NAME", "name")
         }
     }
 
@@ -87,7 +87,8 @@ class TestUsage {
             }
 
             column("foo_id", "INTEGER", NOT_NULL) {
-                foreignKey("FK_FOO2_ID", "foo2", "id")
+//                foreignKey("FK_FOO2_ID", "foo1", "id")
+                foreignKey(null, "foo1", "id")
             }
 
             column("my_check", "CHARACTER VARYING", NULL) {

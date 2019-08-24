@@ -1,5 +1,8 @@
 package io.github.dibog.jdbcdoc
 
+import assertk.assertThat
+import assertk.assertions.isEqualTo
+import io.github.dibog.jdbcdoc.entities.*
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
@@ -40,9 +43,25 @@ class TestIt {
         create table test.foo3 (
             id1 int not null,
             id2 int not null,
+            uq1 int NOT NULL,
+	        uq2 varchar(20) NOT NULL,
             CONSTRAINT PK_FOO3 PRIMARY KEY (id1, id2),
+            CONSTRAINT UQ_FOO3 UNIQUE (uq1, uq2),
             CONSTRAINT FK_FOO3_ID1 FOREIGN KEY (id1) REFERENCES test.foo1(id),
             CONSTRAINT FK_FOO3_ID2 FOREIGN KEY (id2) REFERENCES test.foo2(id),
+        );
+        """.trimIndent())
+
+        execute("""
+        create table test.foo4 (
+            id1 int not null,
+            id2 int not null,
+            id3 varchar(20) not null,
+            id4 int not null,
+            CONSTRAINT PK_FOO4 PRIMARY KEY (id1, id2),
+            CONSTRAINT UQ_FOO4 UNIQUE (id4, id3),
+            CONSTRAINT FK_FOO4_ID1 FOREIGN KEY (id1,id2) REFERENCES test.foo3(id1,id2),
+            CONSTRAINT FK_FOO4_ID2 FOREIGN KEY (id3,id4) REFERENCES test.foo3(uq2,uq1)
         );
         """.trimIndent())
     }
@@ -54,45 +73,121 @@ class TestIt {
 
     @Test
     fun collectCheckConstraints() {
-        println("my_own_check_constraint_query")
-        jdbc.fetchAllCheckConstraintsOf("public", "test").toTableString(
-                headers = listOf("Full Column Name", "Full Constraint Name", "Check Clause")
-        ) { (colName, consName, clause) ->
-            listOf(colName.toString(), consName.toString(), clause)
-        }.println()
+        val checkConstraints = jdbc.fetchAllCheckConstraintsOf("public", "test")
+        val withoutSysChecks = checkConstraints.filter { !it.fullConstraintName.constraint.startsWith("SYS_") }.toSet()
+
+        assertThat(withoutSysChecks).isEqualTo(
+                setOf(
+                        CheckConstraint(
+                                FullConstraintName("PUBLIC","TEST","CH_CHECK"),
+                                setOf(
+                                        FullColumnName("PUBLIC", "TEST", "FOO2", "ID"),
+                                        FullColumnName("PUBLIC", "TEST", "FOO2", "MY_CHECK")),
+                                "(TEST.FOO2.MY_CHECK!='foo') AND (TEST.FOO2.ID<20)"
+                        )
+                )
+        )
     }
 
     @Test
     fun collectPrimaryKeys() {
-        println("my_own_primary_key_query")
-        jdbc.fetchAllPrimaryKeyConstraintsOf("public", "test").toTableString(
-                headers = listOf("Full Column Name", "Full Constraint Name")
-        ) { (colName, consName) ->
-            listOf(colName.toString(), consName.toString())
-        }.println()
+        val primaryKeys = jdbc.fetchAllPrimaryKeyConstraintsOf("public", "test")
+
+        assertThat(primaryKeys).isEqualTo(
+                setOf(
+                        PrimaryKeyConstraint(
+                                FullConstraintName("PUBLIC","TEST","PK_FOO1"),
+                                FullColumnName("PUBLIC", "TEST", "FOO1", "ID")),
+                        PrimaryKeyConstraint(
+                                FullConstraintName("PUBLIC","TEST","PK_FOO2"),
+                                FullColumnName("PUBLIC", "TEST", "FOO2", "ID")),
+                        PrimaryKeyConstraint(
+                                FullConstraintName("PUBLIC","TEST","PK_FOO3"),
+                                listOf(
+                                        FullColumnName("PUBLIC", "TEST", "FOO3", "ID1"),
+                                        FullColumnName("PUBLIC", "TEST", "FOO3", "ID2"))),
+                        PrimaryKeyConstraint(
+                                FullConstraintName("PUBLIC","TEST","PK_FOO4"),
+                                listOf(
+                                        FullColumnName("PUBLIC", "TEST", "FOO4", "ID1"),
+                                        FullColumnName("PUBLIC", "TEST", "FOO4", "ID2")))
+                )
+        )
     }
 
     @Test
     fun collectUniqueConstraints() {
-        println("my_own_unique_query")
-        jdbc.fetchAllUniqueConstraintsOf("public", "test").toTableString(
-                headers = listOf("Full Column Name", "Full Constraint Name")
-        ) { (colName, consName) ->
-            listOf(colName.toString(), consName.toString())
-        }.println()
+        val unique = jdbc.fetchAllUniqueConstraintsOf("public", "test")
+
+        assertThat(unique).isEqualTo(
+                setOf(
+                        UniqueConstraint(
+                                FullConstraintName("PUBLIC","TEST","UC_FOO1_NAME"),
+                                FullColumnName("PUBLIC", "TEST", "FOO1", "NAME")),
+                        UniqueConstraint(
+                                FullConstraintName("PUBLIC","TEST","UQ_FOO3"),
+                                listOf(
+                                    FullColumnName("PUBLIC", "TEST", "FOO3", "UQ1"),
+                                    FullColumnName("PUBLIC", "TEST", "FOO3", "UQ2"))),
+                        UniqueConstraint(
+                                FullConstraintName("PUBLIC","TEST","UQ_FOO4"),
+                                listOf(
+                                        FullColumnName("PUBLIC", "TEST", "FOO4", "ID4"),
+                                        FullColumnName("PUBLIC", "TEST", "FOO4", "ID3")))
+                )
+        )
     }
 
     @Test
     fun collectForeignKeyConstraints() {
-        println("my_own_foreign_key_query")
-        jdbc.fetchAllForeignKeyConstraintsFor("public","test").toTableString(
-                headers = listOf("Source Column Name", "Destination Column Name", "Constraint Name")
-        ) { (src, dest, consName) ->
-            listOf(src.toString(), dest.toString(), consName.toString())
-        }.println()
+        val foreignKeys = jdbc.fetchAllForeignKeyConstraintsFor("public","test")
+
+        assertThat(foreignKeys).isEqualTo(
+                setOf(
+                        ForeignKeyConstraint(
+                                FullConstraintName("PUBLIC","TEST","FK_FOO2_ID"),
+                                FullColumnName("PUBLIC", "TEST", "FOO2", "ID"),
+                                FullColumnName("PUBLIC", "TEST", "FOO1", "ID")
+                        ),
+                        ForeignKeyConstraint(
+                                FullConstraintName("PUBLIC","TEST","FK_FOO3_ID1"),
+                                FullColumnName("PUBLIC", "TEST", "FOO3", "ID1"),
+                                FullColumnName("PUBLIC", "TEST", "FOO1", "ID")
+                        ),
+                        ForeignKeyConstraint(
+                                FullConstraintName("PUBLIC","TEST","FK_FOO3_ID2"),
+                                FullColumnName("PUBLIC", "TEST", "FOO3", "ID2"),
+                                FullColumnName("PUBLIC", "TEST", "FOO2", "ID")
+                        ),
+                        ForeignKeyConstraint(
+                                FullConstraintName("PUBLIC","TEST","FK_FOO4_ID1"),
+                                listOf(
+                                        FullColumnName("PUBLIC", "TEST", "FOO4", "ID1"),
+                                        FullColumnName("PUBLIC", "TEST", "FOO4", "ID2")
+                                ),
+                                listOf(
+                                        FullColumnName("PUBLIC", "TEST", "FOO3", "ID1"),
+                                        FullColumnName("PUBLIC", "TEST", "FOO3", "ID2")
+                                )
+                        ),
+                        ForeignKeyConstraint(
+                                FullConstraintName("PUBLIC","TEST","FK_FOO4_ID2"),
+                                listOf(
+                                        FullColumnName("PUBLIC", "TEST", "FOO4", "ID4"),
+                                        FullColumnName("PUBLIC", "TEST", "FOO4", "ID3")
+                                ),
+                                listOf(
+                                        FullColumnName("PUBLIC", "TEST", "FOO3", "UQ1"),
+                                        FullColumnName("PUBLIC", "TEST", "FOO3", "UQ2")
+                                )
+                        )
+
+
+                )
+        )
     }
 
-    @Test
+    @Test @Disabled
     fun collectColumnInfos() {
         println("my_own_columns")
         jdbc.fetchAllColumnInfosFor("public", "test").toTableString(

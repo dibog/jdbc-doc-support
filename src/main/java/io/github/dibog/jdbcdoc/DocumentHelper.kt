@@ -15,23 +15,23 @@ class DocumentHelper(jdbc: JdbcTemplate, catalog: String, schema: String) {
     private val columnInfo = jdbc.fetchAllColumnInfosFor(catalog, schema)
 
     fun allTables(): List<TableInfo> {
-        val allTables = checkConstraints.map { it.fullColumnName.fullTableName }.toSet() +
-                primaryKeyConstraint.map { it.fullColumnName.fullTableName }.toSet() +
-                uniqueConstraint.map { it.fullColumnName.fullTableName }.toSet() +
-                foreignKeyConstraint.map { it.fullSrcColumnName.fullTableName }.toSet()
+        val allTables = checkConstraints.flatMap { it.fullColumnNames }.map { it.fullTableName }.toSet() +
+                primaryKeyConstraint.flatMap { it.fullColumnNames }.map { it.fullTableName }.toSet() +
+                uniqueConstraint.flatMap { it.fullColumnNames }.map { it.fullTableName }.toSet() +
+                foreignKeyConstraint.flatMap { it.srcColumns }.map { it.fullTableName }.toSet()
 
         return allTables.mapNotNull { fetchTable( it.table ) }
     }
 
     fun fetchTable(tableName: String): TableInfo? {
         val tableName = FullTableName(catalog, schema, tableName.toUpperCase())
-        val tableCC = checkConstraints.filter { it.fullColumnName.fullTableName==tableName }
-        val tablePK = primaryKeyConstraint.filter { it.fullColumnName.fullTableName==tableName }
-        val tableUQ = uniqueConstraint.filter { it.fullColumnName.fullTableName==tableName }
-        val tableFK = foreignKeyConstraint.filter { it.fullSrcColumnName.fullTableName==tableName }
+        val tableCC = checkConstraints.filter { it.fullColumnNames.any { it.fullTableName==tableName } }
+        val tablePK = primaryKeyConstraint.filter { it.fullColumnNames.any { it.fullTableName==tableName } }
+        val tableUQ = uniqueConstraint.filter { it.fullColumnNames.any { it.fullTableName==tableName } }
+        val tableFK = foreignKeyConstraint.filter { it.srcColumns.any { it.fullTableName==tableName } }
         val constraints = tableCC + tablePK + tableUQ + tableFK
 
-        val columns = columnInfo.filter { it.columnName.fullTableName==tableName }
+        val columns = columnInfo.filter { it.fullColumnName.fullTableName==tableName }
         return if(constraints==null) null else TableInfo(tableName, columns, constraints)
     }
 }
