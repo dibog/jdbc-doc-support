@@ -2,7 +2,8 @@ package io.github.dibog.jdbcdoc
 
 import assertk.assertThat
 import assertk.assertions.isEqualTo
-import io.github.dibog.jdbcdoc.entities.*
+import io.github.dibog.jdbcdoc.entities.FullColumnName
+import io.github.dibog.jdbcdoc.entities.FullConstraintName
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
@@ -66,6 +67,8 @@ class TestIt {
         """.trimIndent())
     }
 
+    private val extractor = Extractor(jdbc, "public", "test")
+
     @AfterAll
     fun shutdown() {
         jdbc.execute("SHUTDOWN")
@@ -73,14 +76,14 @@ class TestIt {
 
     @Test
     fun collectCheckConstraints() {
-        val checkConstraints = jdbc.fetchAllCheckConstraintsOf("public", "test")
-        val withoutSysChecks = checkConstraints.filter { !it.fullConstraintName.constraint.startsWith("SYS_") }.toSet()
+        val checkConstraints = extractor.checks.flatMap { it.value }
+        val withoutSysChecks = checkConstraints.filter { !it.constraintName.constraint.startsWith("SYS_") }.toSet()
 
         assertThat(withoutSysChecks).isEqualTo(
                 setOf(
                         CheckConstraint(
-                                FullConstraintName("PUBLIC","TEST","CH_CHECK"),
-                                setOf(
+                                FullConstraintName("PUBLIC", "TEST", "CH_CHECK"),
+                                listOf(
                                         FullColumnName("PUBLIC", "TEST", "FOO2", "ID"),
                                         FullColumnName("PUBLIC", "TEST", "FOO2", "MY_CHECK")),
                                 "(TEST.FOO2.MY_CHECK!='foo') AND (TEST.FOO2.ID<20)"
@@ -91,23 +94,23 @@ class TestIt {
 
     @Test
     fun collectPrimaryKeys() {
-        val primaryKeys = jdbc.fetchAllPrimaryKeyConstraintsOf("public", "test")
+        val primaryKeys = extractor.primaryKeys.flatMap { it.value }.toSet()
 
         assertThat(primaryKeys).isEqualTo(
                 setOf(
                         PrimaryKeyConstraint(
-                                FullConstraintName("PUBLIC","TEST","PK_FOO1"),
+                                FullConstraintName("PUBLIC", "TEST", "PK_FOO1"),
                                 FullColumnName("PUBLIC", "TEST", "FOO1", "ID")),
                         PrimaryKeyConstraint(
-                                FullConstraintName("PUBLIC","TEST","PK_FOO2"),
+                                FullConstraintName("PUBLIC", "TEST", "PK_FOO2"),
                                 FullColumnName("PUBLIC", "TEST", "FOO2", "ID")),
                         PrimaryKeyConstraint(
-                                FullConstraintName("PUBLIC","TEST","PK_FOO3"),
+                                FullConstraintName("PUBLIC", "TEST", "PK_FOO3"),
                                 listOf(
                                         FullColumnName("PUBLIC", "TEST", "FOO3", "ID1"),
                                         FullColumnName("PUBLIC", "TEST", "FOO3", "ID2"))),
                         PrimaryKeyConstraint(
-                                FullConstraintName("PUBLIC","TEST","PK_FOO4"),
+                                FullConstraintName("PUBLIC", "TEST", "PK_FOO4"),
                                 listOf(
                                         FullColumnName("PUBLIC", "TEST", "FOO4", "ID1"),
                                         FullColumnName("PUBLIC", "TEST", "FOO4", "ID2")))
@@ -117,20 +120,20 @@ class TestIt {
 
     @Test
     fun collectUniqueConstraints() {
-        val unique = jdbc.fetchAllUniqueConstraintsOf("public", "test")
+        val unique = extractor.uniques.flatMap { it.value }.toSet()
 
         assertThat(unique).isEqualTo(
                 setOf(
                         UniqueConstraint(
-                                FullConstraintName("PUBLIC","TEST","UC_FOO1_NAME"),
+                                FullConstraintName("PUBLIC", "TEST", "UC_FOO1_NAME"),
                                 FullColumnName("PUBLIC", "TEST", "FOO1", "NAME")),
                         UniqueConstraint(
-                                FullConstraintName("PUBLIC","TEST","UQ_FOO3"),
+                                FullConstraintName("PUBLIC", "TEST", "UQ_FOO3"),
                                 listOf(
-                                    FullColumnName("PUBLIC", "TEST", "FOO3", "UQ1"),
-                                    FullColumnName("PUBLIC", "TEST", "FOO3", "UQ2"))),
+                                        FullColumnName("PUBLIC", "TEST", "FOO3", "UQ1"),
+                                        FullColumnName("PUBLIC", "TEST", "FOO3", "UQ2"))),
                         UniqueConstraint(
-                                FullConstraintName("PUBLIC","TEST","UQ_FOO4"),
+                                FullConstraintName("PUBLIC", "TEST", "UQ_FOO4"),
                                 listOf(
                                         FullColumnName("PUBLIC", "TEST", "FOO4", "ID4"),
                                         FullColumnName("PUBLIC", "TEST", "FOO4", "ID3")))
@@ -140,27 +143,27 @@ class TestIt {
 
     @Test
     fun collectForeignKeyConstraints() {
-        val foreignKeys = jdbc.fetchAllForeignKeyConstraintsFor("public","test")
+        val foreignKeys = extractor.foreignKeys.flatMap { it.value }.toSet()
 
         assertThat(foreignKeys).isEqualTo(
                 setOf(
                         ForeignKeyConstraint(
-                                FullConstraintName("PUBLIC","TEST","FK_FOO2_ID"),
+                                FullConstraintName("PUBLIC", "TEST", "FK_FOO2_ID"),
                                 FullColumnName("PUBLIC", "TEST", "FOO2", "ID"),
                                 FullColumnName("PUBLIC", "TEST", "FOO1", "ID")
                         ),
                         ForeignKeyConstraint(
-                                FullConstraintName("PUBLIC","TEST","FK_FOO3_ID1"),
+                                FullConstraintName("PUBLIC", "TEST", "FK_FOO3_ID1"),
                                 FullColumnName("PUBLIC", "TEST", "FOO3", "ID1"),
                                 FullColumnName("PUBLIC", "TEST", "FOO1", "ID")
                         ),
                         ForeignKeyConstraint(
-                                FullConstraintName("PUBLIC","TEST","FK_FOO3_ID2"),
+                                FullConstraintName("PUBLIC", "TEST", "FK_FOO3_ID2"),
                                 FullColumnName("PUBLIC", "TEST", "FOO3", "ID2"),
                                 FullColumnName("PUBLIC", "TEST", "FOO2", "ID")
                         ),
                         ForeignKeyConstraint(
-                                FullConstraintName("PUBLIC","TEST","FK_FOO4_ID1"),
+                                FullConstraintName("PUBLIC", "TEST", "FK_FOO4_ID1"),
                                 listOf(
                                         FullColumnName("PUBLIC", "TEST", "FOO4", "ID1"),
                                         FullColumnName("PUBLIC", "TEST", "FOO4", "ID2")
@@ -171,7 +174,7 @@ class TestIt {
                                 )
                         ),
                         ForeignKeyConstraint(
-                                FullConstraintName("PUBLIC","TEST","FK_FOO4_ID2"),
+                                FullConstraintName("PUBLIC", "TEST", "FK_FOO4_ID2"),
                                 listOf(
                                         FullColumnName("PUBLIC", "TEST", "FOO4", "ID4"),
                                         FullColumnName("PUBLIC", "TEST", "FOO4", "ID3")
@@ -190,7 +193,7 @@ class TestIt {
     @Test @Disabled
     fun collectColumnInfos() {
         println("my_own_columns")
-        jdbc.fetchAllColumnInfosFor("public", "test").toTableString(
+        extractor.columns.flatMap { it.value }.toTableString(
                 headers = listOf("Column Name", "Data Type", "Is Nullable")
         ) { (columnName, dataType, isNullable) ->
             listOf(columnName.toString(), dataType.toString(), if(isNullable) "YES" else "NO")

@@ -7,5 +7,11 @@ data class FullTableName(val catalog: String, val schema: String, val table: Str
     fun toFullConstraintName(constraintName: String): FullConstraintName {
         return FullConstraintName(catalog, schema, constraintName.toUpperCase())
     }
+
+    fun toFileName(): String {
+        return "$catalog.$schema.$table"
+    }
+
     override fun toString() = "$catalog.$schema.$table"
+
 }

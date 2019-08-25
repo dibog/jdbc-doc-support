@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.TestInstance.Lifecycle.PER_CLASS
 import org.springframework.jdbc.core.JdbcTemplate
+import java.nio.file.Path
+import java.nio.file.Paths
 
 @TestInstance(PER_CLASS)
 class TestUsage {
@@ -94,11 +96,13 @@ class TestUsage {
             column("my_check", "CHARACTER VARYING", NULL) {
                 // check constraint
             }
+
+            check("CH_CHECK", listOf("id", "my_check"))
         }
     }
 
     private fun document(tableName: String, action: DocTableSupport.()->Unit = {}) {
-        val support = DocTableSupport(docHelper, tableName)
+        val support = DocTableSupport(docHelper, tableName, Paths.get("."))
         support.action()
         support.complete()
     }

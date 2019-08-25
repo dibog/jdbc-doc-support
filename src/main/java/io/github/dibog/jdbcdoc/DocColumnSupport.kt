@@ -1,6 +1,5 @@
 package io.github.dibog.jdbcdoc
 
-import io.github.dibog.jdbcdoc.entities.FullColumnName
 
 class DocColumnSupport(private val parent: DocTableSupport, private val columnName: String) {
 

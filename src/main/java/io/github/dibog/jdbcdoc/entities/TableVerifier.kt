@@ -1,5 +1,10 @@
 package io.github.dibog.jdbcdoc.entities
 
+import io.github.dibog.jdbcdoc.*
+import java.io.BufferedWriter
+import java.nio.file.Files
+import java.nio.file.Path
+
 class TableVerifier(
         private val tableName: FullTableName,
         private val pkVerifier : PrimaryKeyVerifier?,
@@ -14,103 +19,79 @@ class TableVerifier(
     private val foreignKeyVerifier = foreignKeyVerifiers.associateBy { it.constraintName }
     private val errorMessages = mutableListOf<String>()
 
-    class Builder(private val name: FullTableName, private val primaryKey: PrimaryKeyConstraintChecker?) {
-        private val pkVerifier = if(primaryKey==null) null else {
-            val (name,columns) = primaryKey
-            PrimaryKeyVerifier(name, columns)
-        }
-        private val uniqueVerifiers = mutableListOf<UniqueVerifier>()
-        private val checkVerifiers = mutableListOf<CheckVerifier>()
-        private val foreignKeyVerifiers = mutableListOf<ForeignKeyVerifier>()
-        private val columnVerifiers = mutableListOf<ColumnVerifier>()
+    private var primaryKeyDoc: PrimaryKeyDoc? = null
+    private val columnDocs = mutableMapOf<FullColumnName,ColumnDoc>()
+    private val uniqueDocs = mutableListOf<UniqueDoc>()
+    private val foreignKeyDocs = mutableListOf<ForeignKeyDoc>()
+    private val checkConstraints = mutableMapOf<FullConstraintName, CheckConstraintDoc>()
 
-        fun build(): TableVerifier {
-            return TableVerifier(
-                    name,
-                    pkVerifier,
-                    columnVerifiers,
-                    uniqueVerifiers,
-                    checkVerifiers,
-                    foreignKeyVerifiers
-                    )
-        }
-
-        fun addUniqueVerifier(name: FullConstraintName, columns: List<FullColumnName>): Builder {
-            uniqueVerifiers.add(UniqueVerifier(name, columns))
-            return this
-        }
-
-        fun addCheckVerifier(name: FullConstraintName, columns: Set<FullColumnName>, clause: String): Builder {
-            checkVerifiers.add(CheckVerifier(name, columns))
-            return this
-        }
-
-        fun addForeignKeyVerifier(name: FullConstraintName, srcColumns: List<FullColumnName>, destColumns: List<FullColumnName>): Builder {
-            foreignKeyVerifiers.add(ForeignKeyVerifier(name, srcColumns, destColumns))
-            return this
-        }
-
-        fun addColumnVerifier(name: FullColumnName, dataType: String, isNullable: Boolean): Builder {
-            columnVerifiers.add(ColumnVerifier(name, dataType, isNullable))
-            return this
-        }
+    fun documentColumn(columnName: String, expectedDataType: String, expectedNullability: Boolean, comment: String?) {
+        val columnName = tableName.toFullColumnName(columnName)
+        val doc = ColumnDoc(columnName, expectedDataType, expectedNullability, comment)
+        columnDocs[columnName] = doc
     }
 
-    fun verifyColumn(columnName: String, expectedDataType: String, expectedNullability: Boolean) {
-        val columnName = tableName.toFullColumnName(columnName)
-        val columnInfo = columnVerifier[columnName]
-        if(columnInfo==null) {
-            errorMessages.add("Unknown column '$columnName")
+    private fun verifyColumnDoc(doc: ColumnDoc) {
+        val verifier = columnVerifier[doc.columnName]
+
+        if (verifier==null) {
+            errorMessages.add("Column '${doc.columnName}' has no verifier (perhaps it does not exist)")
         }
         else {
-            val errors = columnInfo.verify(expectedDataType, expectedNullability)
-            if(errors.isNotEmpty()!=null) {
-                errorMessages.addAll(errors)
-            }
+            verifier.verify(doc).addTo(errorMessages)
         }
     }
 
-    fun verifyPrimaryKey(constraintName: String?, expectedColumns: List<String>){
+    fun documentPrimaryKey(constraintName: String?, expectedColumns: List<String>) {
         val constraintName = if(constraintName==null) null else tableName.toFullConstraintName(constraintName)
         val expectedColumns = expectedColumns.map { tableName.toFullColumnName(it) }
+
+        primaryKeyDoc = PrimaryKeyDoc(constraintName, expectedColumns)
+    }
+
+    private fun verifyPrimaryKeyDoc(doc: PrimaryKeyDoc?) {
+        if(doc==null) return
+        val value = pkVerifier
 
         if(pkVerifier==null) {
-            if (constraintName == null) {
+            if (doc.constraintName == null) {
                 errorMessages.add("Table '$tableName' is expected to have a primary key, but actual has none")
-            } else if (constraintName != null) {
-                errorMessages.add("Table '$tableName' is expected to have a primary key '$constraintName', but actual has none")
+            } else {
+                errorMessages.add("Table '$tableName' is expected to have a primary key '${doc.constraintName}', but actual has none")
             }
         }
         else {
-            val errors = pkVerifier.verify(constraintName, expectedColumns)
-            if(errors.isNotEmpty()) {
-                errorMessages.addAll(errors)
-            }
+            pkVerifier.verify(doc).addTo(errorMessages)
         }
     }
 
-    fun verifyUnique(constraintName: String?, expectedColumns: List<String>) {
+    fun documentUnique(constraintName: String?, expectedColumns: List<String>) {
         val constraintName = if(constraintName==null) null else tableName.toFullConstraintName(constraintName)
         val expectedColumns = expectedColumns.map { tableName.toFullColumnName(it) }
 
-        val verifier = if(constraintName==null) {
-            val candidates = uniqueVerifier.filter { (name, uv) -> uv.columns==expectedColumns }.map { (name, uv) -> uv}
+        val doc = UniqueDoc(constraintName, expectedColumns)
+        uniqueDocs.add(doc)
+    }
+
+    private fun verifyUniqueDoc(doc: UniqueDoc) {
+        val verifier = if(doc.constraintName==null) {
+            val candidates = uniqueVerifier.filter { (name, uv) -> uv.columns==doc.expectedColumns }.map { (name, uv) -> uv}
             when {
                 candidates.isEmpty() -> {
-                    errorMessages.add("Could not find any unique constraints for '$expectedColumns'")
+                    errorMessages.add("Could not find any unique constraints for '${doc.expectedColumns}'")
                     null
                 }
                 candidates.size==1 -> candidates[0]
                 else -> {
-                    errorMessages.add("Found more then one unique constraints for '$expectedColumns")
+                    errorMessages.add("Found more then one unique constraints for '${doc.expectedColumns}")
                     null
                 }
             }
         }
         else {
-            val verifier = uniqueVerifier[constraintName]
+            val verifier = uniqueVerifier[doc.constraintName]
             if(verifier==null) {
-                errorMessages.add("Could not find any unique constraint with name '$constraintName")
+                errorMessages.add("Could not find any unique constraint with name '${doc.constraintName}")
                 null
             }
             else {
@@ -118,46 +99,48 @@ class TableVerifier(
             }
         }
 
-        val errors = verifier?.verify(constraintName, expectedColumns) ?: listOf()
-        if(errors.isNotEmpty()) {
-            errorMessages.addAll(errors)
-        }
+        verifier?.verify(doc)?.addTo(errorMessages)
     }
 
-    fun verifyForeignKey(constraintName: String?=null, srcColumn: String, targetTable: String, targetColumn: String) {
+    fun documentForeignKey(constraintName: String?=null, srcColumn: String, targetTable: String, targetColumn: String) {
         val expectedSrcColumn = tableName.toFullColumnName(srcColumn)
         val targetTable = FullTableName(tableName.catalog, tableName.schema, targetTable.toUpperCase())
         val expectedDestColumn = targetTable.toFullColumnName(targetColumn)
 
-        verifyForeignKey(constraintName, listOf(expectedSrcColumn to expectedDestColumn))
+        documentForeignKey(constraintName, listOf(expectedSrcColumn to expectedDestColumn))
     }
 
-    fun verifyForeignKey(constraintName: String?, expectedColumns: List<Pair<FullColumnName, FullColumnName>>) {
+    fun documentForeignKey(constraintName: String?, expectedColumns: List<Pair<FullColumnName, FullColumnName>>) {
         val constraintName = if(constraintName==null) null else tableName.toFullConstraintName(constraintName)
         val expectedSrcColumns = expectedColumns.map { it.first }
         val expectedDestColumns = expectedColumns.map { it.second }
 
-        val verifier = if(constraintName==null) {
+        val doc = ForeignKeyDoc( constraintName, expectedSrcColumns, expectedDestColumns )
+        foreignKeyDocs.add(doc)
+    }
+
+    private fun verifyForeignKeyDoc(doc: ForeignKeyDoc) {
+        val verifier = if(doc.constraintName==null) {
             val candidates = foreignKeyVerifier.filter { (name,verifier) ->
-                verifier.srcColumns==expectedSrcColumns
+                verifier.srcColumns==doc.expectedSrcColumns
             }.map { (name, verifier) -> verifier}
 
             when {
                 candidates.isEmpty() -> {
-                    errorMessages.add("Could not find any foreign key constraints for '$expectedSrcColumns'")
+                    errorMessages.add("Could not find any foreign key constraints for '${doc.expectedSrcColumns}'")
                     null
                 }
                 candidates.size==1 -> candidates[0]
                 else -> {
-                    errorMessages.add("Found more then one foreign key constraints for '$expectedSrcColumns")
+                    errorMessages.add("Found more then one foreign key constraints for '${doc.expectedSrcColumns}")
                     null
                 }
             }
         }
         else {
-            val fkVerifier = foreignKeyVerifier[constraintName]
+            val fkVerifier = foreignKeyVerifier[doc.constraintName]
             if(fkVerifier==null) {
-                errorMessages.add("Could not find any foreign key constraint '$constraintName'")
+                errorMessages.add("Could not find any foreign key constraint '${doc.constraintName}'")
                 null
             }
             else {
@@ -165,13 +148,48 @@ class TableVerifier(
             }
         }
 
-        val errors = verifier?.verify(constraintName, expectedSrcColumns, expectedDestColumns) ?: listOf()
-        if(errors.isNotEmpty()) {
-            errorMessages.addAll(errors)
+        verifier?.verify(doc)?.addTo(errorMessages)
+    }
+
+    fun documentCheckConstraint(constraintName: String, columns: List<String>, clause: String?) {
+        val constraintName = tableName.toFullConstraintName(constraintName)
+        val columns = columns.map { tableName.toFullColumnName(it) }
+
+        val doc = CheckConstraintDoc( constraintName, columns, clause )
+        checkConstraints[constraintName] = doc
+    }
+
+    private fun verifyCheckConstraintDoc(doc: CheckConstraintDoc) {
+        val verifier = checkVerifier[doc.constraintName]
+        if(verifier==null) {
+            errorMessages.add("Could not find any check constraint '${doc.constraintName}'")
+        }
+        else {
+            verifier.verify(doc).addTo(errorMessages)
         }
     }
 
-    fun verifyAll(skipCheckedException: Boolean): String {
+    internal fun documentAll() {
+        verifyPrimaryKeyDoc(primaryKeyDoc)
+
+        uniqueDocs.forEach { doc->
+            verifyUniqueDoc(doc)
+        }
+
+        foreignKeyDocs.forEach { doc ->
+            verifyForeignKeyDoc(doc)
+        }
+
+        columnDocs.forEach { (_, doc) ->
+            verifyColumnDoc(doc)
+        }
+
+        checkConstraints.forEach { (_, doc) ->
+            verifyCheckConstraintDoc(doc)
+        }
+    }
+
+    internal fun verifyAll(skipCheckedException: Boolean): String {
         if(pkVerifier!=null && !pkVerifier.verified) {
             errorMessages.add("Primary key '${pkVerifier.constraintName}' was not documented")
         }
@@ -204,7 +222,30 @@ class TableVerifier(
 
         return errorMessages.joinToString("\n") { it }
     }
+
+    fun createDocumentation(docFolder: Path) {
+        Files.newBufferedWriter(docFolder.resolve(tableName.toFileName())).use { writer ->
+            writer.writeLn("[source]")
+            writer.writeLn("----")
+
+        }
+    }
 }
+
+fun BufferedWriter.writeLn(text: String) {
+    write(text)
+    newLine()
+}
+
+data class CheckConstraintDoc(val constraintName: FullConstraintName, val columns: List<FullColumnName>, val clause: String?)
+
+data class ForeignKeyDoc(val constraintName: FullConstraintName?, val expectedSrcColumns: List<FullColumnName>, val expectedDestColumns: List<FullColumnName>)
+
+data class PrimaryKeyDoc(val constraintName: FullConstraintName?, val expectedColumns: List<FullColumnName>)
+
+data class UniqueDoc(val constraintName: FullConstraintName?, val expectedColumns: List<FullColumnName>)
+
+data class ColumnDoc(val columnName: FullColumnName, val expectedDataType: String, val expectedNullability: Boolean, val comment: String?)
 
 open class Verifier {
     var verified = false
@@ -214,15 +255,18 @@ open class Verifier {
 open class ConstraintVerifier(val constraintName: FullConstraintName) : Verifier()
 
 class PrimaryKeyVerifier( constraintName: FullConstraintName, val columns: List<FullColumnName>) : ConstraintVerifier(constraintName) {
-    fun verify(constraintName: FullConstraintName?, expectedColumns: List<FullColumnName>): List<String> {
+    constructor(pk: PrimaryKeyConstraint) : this(pk.constraintName, pk.columnNames)
+
+    fun verify(doc: PrimaryKeyDoc?): List<String> {
+        if(doc==null) return listOf()
         val errors = mutableListOf<String>()
 
-        if(expectedColumns!=columns) {
+        if(doc.expectedColumns!=columns) {
             if(constraintName!=null) {
-                errors.add("Expected '$expectedColumns' to be primary key '$constraintName', but '$columns' were")
+                errors.add("Expected '${doc.expectedColumns}' to be primary key '$constraintName', but '$columns' were")
             }
             else {
-                errors.add("Expected '$expectedColumns' to be primary key, but '$columns' were")
+                errors.add("Expected '${doc.expectedColumns}' to be primary key, but '$columns' were")
             }
         }
         else {
@@ -234,14 +278,16 @@ class PrimaryKeyVerifier( constraintName: FullConstraintName, val columns: List<
 }
 
 class UniqueVerifier(constraintName: FullConstraintName, val columns: List<FullColumnName>) : ConstraintVerifier(constraintName) {
-    fun verify(constraintName: FullConstraintName?, expectedColumns: List<FullColumnName>): List<String> {
+    constructor(uniqueConstraint: UniqueConstraint) : this(uniqueConstraint.constraintName, uniqueConstraint.columnNames)
+
+    fun verify(doc: UniqueDoc): List<String> {
         val errors = mutableListOf<String>()
-        if(expectedColumns!=columns) {
+        if(doc.expectedColumns!=columns) {
             if(constraintName!=null) {
-                errors.add("Expected '$expectedColumns' to be unique constraint '$constraintName', but '$columns' are the primary key")
+                errors.add("Expected '${doc.expectedColumns}' to be unique constraint '$constraintName', but '$columns' are the primary key")
             }
             else {
-                errors.add("Expected '$expectedColumns' to be unique constraint, but '$columns' were expected")
+                errors.add("Expected '${doc.expectedColumns}' to be unique constraint, but '$columns' were expected")
             }
         }
         else {
@@ -251,20 +297,30 @@ class UniqueVerifier(constraintName: FullConstraintName, val columns: List<FullC
     }
 }
 
-class CheckVerifier(constraintName: FullConstraintName, val columns: Set<FullColumnName>) : ConstraintVerifier(constraintName)
+class CheckVerifier(constraintName: FullConstraintName, val columns: List<FullColumnName>) : ConstraintVerifier(constraintName) {
+    constructor(checkConstraint: CheckConstraint) : this(checkConstraint.constraintName, checkConstraint.columnNames)
+
+    fun verify(doc: CheckConstraintDoc): List<String> {
+        return if(doc.columns!=columns) {
+            listOf("Check constraint '$constraintName' is expected to check '${doc.columns}' but actually is checking '${columns}'")
+        }
+        else {
+            listOf()
+        }
+    }
+}
+
 class ForeignKeyVerifier(constraintName: FullConstraintName, val srcColumns: List<FullColumnName>, val destColumns: List<FullColumnName>) : ConstraintVerifier(constraintName) {
-    fun verify(
-            constraintName: FullConstraintName?,
-            expectedSrcColumns: List<FullColumnName>,
-            expectedDestColumns: List<FullColumnName>
-    ): List<String> {
+    constructor(fk: ForeignKeyConstraint) : this(fk.constraintName, fk.srcColumnNames, fk.destColumnNames)
+
+    fun verify(doc: ForeignKeyDoc): List<String> {
         val errors = mutableListOf<String>()
 
-        if(expectedSrcColumns!=srcColumns) {
-            errors.add("Expected '$constraintName' to have source columns '$expectedSrcColumns', but they were '$srcColumns'")
+        if(doc.expectedSrcColumns!=srcColumns) {
+            errors.add("Expected '$constraintName' to have source columns '${doc.expectedSrcColumns}', but they were '$srcColumns'")
         }
-        if(expectedDestColumns!=destColumns) {
-            errors.add("Expected '$constraintName' to have targeted columns '$expectedDestColumns', but they were '$destColumns'")
+        if(doc.expectedDestColumns!=destColumns) {
+            errors.add("Expected '$constraintName' to have targeted columns '${doc.expectedDestColumns}', but they were '$destColumns'")
         }
 
         verified = errors.isEmpty()
@@ -274,19 +330,24 @@ class ForeignKeyVerifier(constraintName: FullConstraintName, val srcColumns: Lis
 }
 
 class ColumnVerifier(val columnName: FullColumnName, val dataType: String, val isNullable: Boolean) : Verifier() {
-    fun verify(expectedDataType: String, expectedNullability: Boolean): List<String> {
+    constructor(columnInfo: ColumnInfo) : this(columnInfo.name, columnInfo.dataType, columnInfo.isNullable)
+
+    fun verify(doc: ColumnDoc): List<String> {
         fun asString(nullability: Boolean) =  if(nullability) "nullable" else "not nullable"
 
         val errors = mutableListOf<String>()
-        if(isNullable!=expectedNullability) {
-            errors.add("Column '$columnName' is expected to be ${asString(expectedNullability)} but is ${asString(isNullable)}")
+        if(isNullable!=doc.expectedNullability) {
+            errors.add("Column '$columnName' is expected to be ${asString(doc.expectedNullability)} but is ${asString(isNullable)}")
         }
 
-        if(expectedDataType!=dataType) {
-            errors.add("Column '$columnName' is expected to be $expectedDataType but is $dataType")
+        if(doc.expectedDataType!=dataType) {
+            errors.add("Column '$columnName' is expected to be ${doc.expectedDataType} but is $dataType")
         }
 
         verified = errors.isEmpty()
         return errors
     }
 }
+
+
+fun <T> List<T>.addTo(other: MutableList<T>) = other.addAll(this)
