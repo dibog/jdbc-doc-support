@@ -5,17 +5,18 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.TestInstance.Lifecycle.PER_CLASS
 import org.springframework.jdbc.core.JdbcTemplate
+import java.nio.file.Paths
 
 @TestInstance(PER_CLASS)
 class TestUsage {
     private val jdbc = JdbcTemplate(setupDataSource()).apply {
-        createDatabase()
-        initializeDatabase()
+        createDatabase(this)
+        initializeDatabase(this)
     }
 
-    private fun JdbcTemplate.initializeDatabase() {
+    private fun initializeDatabase(jdbc: JdbcTemplate) {
 
-        execute("""
+    jdbc.execute("""
     create table test.foo1 (
         id int not null,
         name varchar(20) not null,
@@ -24,18 +25,18 @@ class TestUsage {
     );
     """.trimIndent())
 
-        execute("""
+    jdbc.execute("""
     create table test.foo2 (
         id int not null,
         foo_id int not null,
         my_check varchar(20),
-        CONSTRAINT FK_FOO2_ID FOREIGN KEY (id) REFERENCES test.foo1(id),
+        CONSTRAINT FK_FOO2_ID FOREIGN KEY (foo_id) REFERENCES test.foo1(id),
         CONSTRAINT PK_FOO2 PRIMARY KEY (id),
         CONSTRAINT CH_CHECK CHECK (my_check!='foo' AND id<20)
     );
     """.trimIndent())
 
-        execute("""
+    jdbc.execute("""
     create table test.foo3 (
         id1 int not null,
         id2 int not null,
@@ -75,7 +76,7 @@ class TestUsage {
             column("name", "CHARACTER VARYING", NOT_NULL)
 
             primaryKey("PK_FOO1", "id")
-            unique("name", "name")
+            unique("UC_FOO1_NAME", "name")
         }
     }
 
@@ -87,17 +88,20 @@ class TestUsage {
             }
 
             column("foo_id", "INTEGER", NOT_NULL) {
-                foreignKey("FK_FOO2_ID", "foo2", "id")
+//                foreignKey("FK_FOO2_ID", "foo1", "id")
+                foreignKey(null, "foo1", "id")
             }
 
             column("my_check", "CHARACTER VARYING", NULL) {
                 // check constraint
             }
+
+            check("CH_CHECK", listOf("id", "my_check"))
         }
     }
 
     private fun document(tableName: String, action: DocTableSupport.()->Unit = {}) {
-        val support = DocTableSupport(docHelper, tableName)
+        val support = DocTableSupport(docHelper, tableName, Paths.get("."))
         support.action()
         support.complete()
     }

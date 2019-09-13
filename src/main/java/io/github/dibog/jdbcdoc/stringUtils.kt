@@ -120,3 +120,5 @@ fun <R> List<R>.toTableString(
 
     return sb.toString()
 }
+
+fun String.println() = println(this)

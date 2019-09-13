@@ -1,21 +1,18 @@
 package io.github.dibog.jdbcdoc
 
-import io.github.dibog.jdbcdoc.entities.FullColumnName
 
 class DocColumnSupport(private val parent: DocTableSupport, private val columnName: String) {
-    private val fullColumnName = parent.toFullColumnName(columnName)
 
     fun isPrimaryKey(constraintName: String? = null) {
-        parent.primaryKey(constraintName, setOf(columnName))
+        parent.primaryKey(constraintName, listOf(columnName))
     }
 
     fun isUnique(constraintName: String? = null) {
-        parent.unique(constraintName, setOf(columnName))
+        parent.unique(constraintName, listOf(columnName))
     }
 
-
-    private fun foreignKey(targetTable: String, targetColumn: String, constraintName: String?=null) {
-        parent.foreignKey(constraintName, fullColumnName, targetTable, targetColumn)
+    fun foreignKey(constraintName: String?=null, targetTable: String, targetColumn: String) {
+        parent.foreignKey(constraintName, columnName, targetTable, targetColumn)
     }
 
 
