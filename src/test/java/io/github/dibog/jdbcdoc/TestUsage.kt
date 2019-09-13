@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.TestInstance.Lifecycle.PER_CLASS
 import org.springframework.jdbc.core.JdbcTemplate
+
 import java.nio.file.Paths
 
 @TestInstance(PER_CLASS)

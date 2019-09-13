@@ -2,8 +2,6 @@ package io.github.dibog.jdbcdoc
 
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
-import org.hsqldb.lib.FileUtil
-import org.hsqldb.lib.FileUtil.getDatabaseFileList
 import org.springframework.jdbc.core.JdbcTemplate
 
 private fun initializeDatabase(jdbc: JdbcTemplate) {

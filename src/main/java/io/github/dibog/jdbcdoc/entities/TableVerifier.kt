@@ -228,7 +228,6 @@ class TableVerifier(
         Files.newBufferedWriter(docFolder.resolve(tableName.toFileName()+".adoc")).use { writer ->
             writer.writeLn("[source]")
             writer.writeLn("----")
-
         }
     }
 }
@@ -346,6 +345,5 @@ class ColumnVerifier(val columnName: FullColumnName, val dataType: String, val i
         return errors
     }
 }
-
 
 fun <T> List<T>.addTo(other: MutableList<T>) = other.addAll(this)
