@@ -7,18 +7,16 @@ import io.github.dibog.jdbcdoc.entities.FullColumnName
 import io.github.dibog.jdbcdoc.entities.PrimaryKeyVerifier
 import io.github.dibog.jdbcdoc.entities.TableVerifier
 import io.github.dibog.jdbcdoc.entities.UniqueVerifier
-import java.nio.file.Files
-import java.nio.file.Path
 
 const val NULL = true
 const val NOT_NULL = false
 
-class DocTableSupport(private val helper: DocumentHelper, tableName: String, private val docFolder: Path) {
+class DocTableSupport(private val helper: DocumentHelper, private val snippetName: String, tableName: String) {
 
+//    private val tableUserInfo : TableUserInfo
     private val verifier : TableVerifier
 
     init {
-        Files.createDirectories(docFolder)
         val tableInfo = helper.fetchTable(tableName) ?: throw IllegalArgumentException("Unknown table '$tableName'")
         verifier = TableVerifier(
                 tableInfo.tableName,
@@ -31,11 +29,11 @@ class DocTableSupport(private val helper: DocumentHelper, tableName: String, pri
     }
 
     fun column(columnName: String, expectedDataType: String, expectedNullability: Boolean, action: DocColumnSupport.()->Unit = {}) {
-        documentColumn(columnName, expectedDataType, expectedNullability)
-
         val support = DocColumnSupport(this, columnName)
         support.action()
         support.complete()
+
+        documentColumn(columnName, expectedDataType, expectedNullability, support.comment)
     }
 
     private fun documentColumn(name: String, expectedDataType: String, expectedNullability: Boolean, comment: String? = null) {
@@ -74,7 +72,7 @@ class DocTableSupport(private val helper: DocumentHelper, tableName: String, pri
     fun complete(skipCheckedException: Boolean = true) {
         verifier.documentAll()
         val errors = verifier.verifyAll(skipCheckedException)
-        verifier.createDocumentation(docFolder)
+        verifier.createDocumentation(snippetName)
 
         if(errors.isNotBlank()) {
             throw AssertionError(errors)

@@ -1,13 +1,14 @@
 package io.github.dibog.jdbcdoc.entities
 
 import io.github.dibog.jdbcdoc.CheckConstraint
-import io.github.dibog.jdbcdoc.ColumnInfo
+import io.github.dibog.jdbcdoc.ColumnDBInfo
 import io.github.dibog.jdbcdoc.ForeignKeyConstraint
 import io.github.dibog.jdbcdoc.PrimaryKeyConstraint
 import io.github.dibog.jdbcdoc.UniqueConstraint
 import java.io.BufferedWriter
 import java.nio.file.Files
-import java.nio.file.Path
+import java.nio.file.Paths
+import java.nio.file.StandardOpenOption
 
 class TableVerifier(
         private val tableName: FullTableName,
@@ -17,6 +18,8 @@ class TableVerifier(
         checkVerifiers : Iterable<CheckVerifier>,
         foreignKeyVerifiers : Iterable<ForeignKeyVerifier>
 ) {
+    private val docFolder = Paths.get("target/snippets-jdbcdoc").also { Files.createDirectories(it) }
+
     private val columnVerifier = columnVerifiers.associateBy { it.columnName }
     private val uniqueVerifier = uniqueVerifiers.associateBy { it.constraintName }
     private val checkVerifier = checkVerifiers.associateBy { it.constraintName }
@@ -35,6 +38,14 @@ class TableVerifier(
         columnDocs[columnName] = doc
     }
 
+    fun documentColumnComment(columnName: String, comment: String?) {
+        val columnName = tableName.toFullColumnName(columnName)
+        val doc = columnDocs[columnName]
+        if(doc!=null) {
+            columnDocs[columnName] = doc.copy(comment = comment)
+        }
+    }
+
     private fun verifyColumnDoc(doc: ColumnDoc) {
         val verifier = columnVerifier[doc.columnName]
 
@@ -47,8 +58,13 @@ class TableVerifier(
     }
 
     fun documentPrimaryKey(constraintName: String?, expectedColumns: List<String>) {
-        val constraintName = if(constraintName==null) null else tableName.toFullConstraintName(constraintName)
         val expectedColumns = expectedColumns.map { tableName.toFullColumnName(it) }
+        val constraintName = if(constraintName==null) {
+            require(pkVerifier!!.columns==expectedColumns)
+            pkVerifier!!.constraintName
+        } else {
+            tableName.toFullConstraintName(constraintName)
+        }
 
         primaryKeyDoc = PrimaryKeyDoc(constraintName, expectedColumns)
     }
@@ -70,8 +86,13 @@ class TableVerifier(
     }
 
     fun documentUnique(constraintName: String?, expectedColumns: List<String>) {
-        val constraintName = if(constraintName==null) null else tableName.toFullConstraintName(constraintName)
         val expectedColumns = expectedColumns.map { tableName.toFullColumnName(it) }
+        val constraintName = if(constraintName==null) {
+            uniqueVerifier.filter { it.value.columns==expectedColumns }.map { it.value }.first().constraintName
+        }
+        else {
+            tableName.toFullConstraintName(constraintName)
+        }
 
         val doc = UniqueDoc(constraintName, expectedColumns)
         uniqueDocs.add(doc)
@@ -115,7 +136,13 @@ class TableVerifier(
     }
 
     fun documentForeignKey(constraintName: String?, expectedMapping: Map<FullColumnName, FullColumnName>) {
-        val constraintName = if(constraintName==null) null else tableName.toFullConstraintName(constraintName)
+
+        val constraintName = if(constraintName==null) {
+            foreignKeyVerifier.filter { it.value.actualMapping==expectedMapping }.map { it.key }.first()
+        }
+        else {
+            tableName.toFullConstraintName(constraintName)
+        }
         val doc = ForeignKeyDoc( constraintName, expectedMapping )
         foreignKeyDocs.add(doc)
     }
@@ -224,15 +251,61 @@ class TableVerifier(
         return errorMessages.joinToString("\n") { it }
     }
 
-    fun createDocumentation(docFolder: Path) {
-        Files.newBufferedWriter(docFolder.resolve(tableName.toFileName()+".adoc")).use { writer ->
-            writer.writeLn("[source]")
-            writer.writeLn("----")
+    fun createDocumentation(snippedName: String) {
+        val indexMap = columnDocs.map { (name,doc) ->
+            val list= mutableListOf<String>()
+            primaryKeyDoc?.let {
+                if(it.expectedColumns.contains(name)) list.add("PK")
+            }
+            uniqueDocs.forEachIndexed { index, uniqueDoc ->
+                if(uniqueDoc.expectedColumns.contains(name)) list.add("UC$index")
+            }
+            foreignKeyDocs.forEachIndexed { index, foreignKeyDoc ->
+                if(foreignKeyDoc.expectedMapping.keys.contains(name)) list.add("FK$index")
+            }
+            checkConstraints.values.forEachIndexed { index, checkDoc ->
+                if(checkDoc.columns.contains(name)) list.add("CC$index")
+            }
+            name to list.joinToString(",") { it }
+        }.toMap()
+
+        Files.newBufferedWriter(docFolder.resolve("$snippedName.adoc"), Charsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING).use {
+            writer  ->
+
+            writer.writeLn(".Table $tableName")
+            writer.writeLn("|===")
+            writer.writeLn("| Indices | Column Name | Data Type | Nullability | Comments")
+
+            columnDocs.map { (name, doc) ->
+                val indices = indexMap[name] ?: ""
+                writer.writeLn("| $indices")
+                writer.writeLn("| ${name.column}")
+                writer.writeLn("| ${doc.expectedDataType}")
+                val nullable = if(doc.expectedNullability) "NULL" else "NOT NULL"
+                writer.writeLn("| $nullable")
+                writer.writeLn("| ${doc.comment ?: ""}")
+                writer.writeLn()
+            }
+
+            writer.writeLn("|===")
+
+            primaryKeyDoc?.let {
+                writer.writeLn("PK:: ${it.constraintName}")
+            }
+            uniqueDocs.forEachIndexed { index, doc ->
+                writer.writeLn("UC$index:: ${doc.constraintName}")
+            }
+            foreignKeyDocs.forEachIndexed { index, foreignKeyDoc ->
+                writer.writeLn("FK$index:: ${foreignKeyDoc.constraintName}")
+            }
+            checkConstraints.values.forEachIndexed { index, checkDoc ->
+                writer.writeLn("CC$index:: ${checkDoc.constraintName}")
+            }
         }
     }
 }
 
-fun BufferedWriter.writeLn(text: String) {
+fun BufferedWriter.writeLn(text: String = "") {
     write(text)
     newLine()
 }
@@ -327,7 +400,7 @@ class ForeignKeyVerifier(constraintName: FullConstraintName, val actualMapping: 
 }
 
 class ColumnVerifier(val columnName: FullColumnName, val dataType: String, val isNullable: Boolean) : Verifier() {
-    constructor(columnInfo: ColumnInfo) : this(columnInfo.name, columnInfo.dataType, columnInfo.isNullable)
+    constructor(columnInfo: ColumnDBInfo) : this(columnInfo.name, columnInfo.dataType, columnInfo.isNullable)
 
     fun verify(doc: ColumnDoc): List<String> {
         fun asString(nullability: Boolean) =  if(nullability) "nullable" else "not nullable"

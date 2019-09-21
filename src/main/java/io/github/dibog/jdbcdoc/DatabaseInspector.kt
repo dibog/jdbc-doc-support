@@ -7,7 +7,7 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.jdbc.core.ResultSetExtractor
 
 class DatabaseInspector(private val jdbc: JdbcTemplate, catalog: String, schema: String) {
-    private val tables : Map<FullTableName, TableInfo>
+    private val tables : Map<FullTableName, TableDBInfo>
     private val dialect : SqlDialect = SqlDialect.createDialect(jdbc.dataSource.connection)
     private val catalog = dialect.catalog(catalog)
     private val schema = dialect.schema(schema)
@@ -16,7 +16,7 @@ class DatabaseInspector(private val jdbc: JdbcTemplate, catalog: String, schema:
     var uniques: Map<FullTableName, List<UniqueConstraint>>
     var primaryKeys: Map<FullTableName, List<PrimaryKeyConstraint>>
     var checks: Map<FullTableName, List<CheckConstraint>>
-    var columns: Map<FullTableName, List<ColumnInfo>>
+    var columns: Map<FullTableName, List<ColumnDBInfo>>
 
     init {
         val keyColumnUsage = loadKeyColumnUsage()
@@ -29,7 +29,7 @@ class DatabaseInspector(private val jdbc: JdbcTemplate, catalog: String, schema:
         val allTables = columns.keys + checks.keys + primaryKeys.keys + uniques.keys + foreignKeys.keys
 
         tables = allTables.map { tableName ->
-            TableInfo(
+            TableDBInfo(
                     tableName,
                     columns[tableName] ?: listOf(),
                     primaryKeys[tableName]?.firstOrNull(),
@@ -85,7 +85,7 @@ class DatabaseInspector(private val jdbc: JdbcTemplate, catalog: String, schema:
         )
     }
 
-    private fun loadAllColumns(): List<ColumnInfo> {
+    private fun loadAllColumns(): List<ColumnDBInfo> {
         return jdbc.query("""
             select *
             from information_schema.columns
@@ -99,7 +99,7 @@ class DatabaseInspector(private val jdbc: JdbcTemplate, catalog: String, schema:
             val isNullable = rs.getString("IS_NULLABLE")=="YES"
             val position = rs.getInt("ORDINAL_POSITION")
 
-            ColumnInfo(fullColumnName, dataType, isNullable, position)
+            ColumnDBInfo(fullColumnName, dataType, isNullable, position)
         }
     }
 
@@ -243,7 +243,7 @@ class DatabaseInspector(private val jdbc: JdbcTemplate, catalog: String, schema:
         val tables = columns.keys + checks.keys + primaryKeys.keys + uniques.keys + foreignKeys.keys
 
         tables.forEach { tableName ->
-            TableInfo(
+            TableDBInfo(
                     tableName,
                     columns[tableName] ?: listOf(),
                     primaryKeys[tableName]?.firstOrNull(),
@@ -254,7 +254,7 @@ class DatabaseInspector(private val jdbc: JdbcTemplate, catalog: String, schema:
         }
     }
 
-    fun getAllTables(): List<TableInfo> {
+    fun getAllTables(): List<TableDBInfo> {
         return tables.values.toList()
     }
 
@@ -262,7 +262,7 @@ class DatabaseInspector(private val jdbc: JdbcTemplate, catalog: String, schema:
         return FullTableName(catalog, schema, dialect.table(tableName))
     }
 
-    fun getTable(fullTableName: FullTableName): TableInfo? {
+    fun getTable(fullTableName: FullTableName): TableDBInfo? {
         return tables[fullTableName]
     }
 
@@ -281,15 +281,6 @@ class DatabaseInspector(private val jdbc: JdbcTemplate, catalog: String, schema:
         }
     }
 }
-
-class TableInfo(
-        val tableName: FullTableName,
-        val columns: List<ColumnInfo>,
-        val primaryKey: PrimaryKeyConstraint?,
-        val uniques: List<UniqueConstraint>,
-        val checks: List<CheckConstraint>,
-        val foreignKeys: List<ForeignKeyConstraint>
-)
 
 data class ForeignKeyConstraint(
         val constraintName: FullConstraintName,
@@ -363,8 +354,6 @@ data class CheckConstraint(
     val tableName: FullTableName
         get() = columnNames[0].fullTableName
 }
-
-data class ColumnInfo(val name: FullColumnName, val dataType: String, val isNullable: Boolean, val position: Int)
 
 data class KeyColumnUsage(val columns: List<FullColumnName>, val targetIndex: List<Int>?) {
     init {

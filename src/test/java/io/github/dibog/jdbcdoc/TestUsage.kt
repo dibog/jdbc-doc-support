@@ -6,8 +6,6 @@ import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.TestInstance.Lifecycle.PER_CLASS
 import org.springframework.jdbc.core.JdbcTemplate
 
-import java.nio.file.Paths
-
 @TestInstance(PER_CLASS)
 class TestUsage {
     private val jdbc = JdbcTemplate(setupDataSource()).apply {
@@ -48,7 +46,7 @@ class TestUsage {
     """.trimIndent())
     }
 
-    private val docHelper = DocumentHelper(jdbc, "public", "test")
+    private val document = DocumentHelper(jdbc, "public", "test")
 
     @AfterAll
     fun shutdown() {
@@ -57,7 +55,7 @@ class TestUsage {
 
     @Test
     fun documentTableFoo1_variantA() {
-        document("foo1") {
+        document.table("foo1", "foo1a") {
             column("id", "INTEGER", NOT_NULL) {
                 isPrimaryKey()
                 hasComment("My own comment for id")
@@ -72,7 +70,7 @@ class TestUsage {
 
     @Test
     fun documentTableFoo1_variantB() {
-        document("foo1") {
+        document.table("foo1", "foo1b") {
             column("id", "INTEGER", NOT_NULL)
             column("name", "CHARACTER VARYING", NOT_NULL)
 
@@ -83,7 +81,7 @@ class TestUsage {
 
     @Test
     fun documentTableFoo2() {
-        document("foo2") {
+        document.table("foo2") {
             column("id", "INTEGER", NOT_NULL) {
                 isPrimaryKey("PK_FOO2")
             }
@@ -101,9 +99,8 @@ class TestUsage {
         }
     }
 
-    private fun document(tableName: String, action: DocTableSupport.()->Unit = {}) {
-        val support = DocTableSupport(docHelper, tableName, Paths.get("."))
-        support.action()
-        support.complete()
+    @Test
+    fun documentSchema() {
+        document.schema()
     }
 }
