@@ -57,17 +57,17 @@ class TableDBInfo(
             }
         }
 
-        uniques
+        uniques.asSequence()
                 .filter { column in it.columnNames }
                 .mapNotNull { shortCuts(it.constraintName) }
                 .forEach { indicies.add(it) }
 
-        checks
+        checks.asSequence()
                 .filter { column in it.columnNames }
                 .mapNotNull { shortCuts(it.constraintName) }
                 .forEach { indicies.add(it) }
 
-        foreignKeys
+        foreignKeys.asSequence()
                 .filter { column in it.mapping.keys }
                 .mapNotNull { shortCuts(it.constraintName) }
                 .forEach { indicies.add(it) }
