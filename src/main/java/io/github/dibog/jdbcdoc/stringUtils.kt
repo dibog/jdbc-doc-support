@@ -1,5 +1,6 @@
 package io.github.dibog.jdbcdoc
 
+import java.io.BufferedWriter
 import kotlin.math.max
 
 
@@ -122,3 +123,8 @@ fun <R> List<R>.toTableString(
 }
 
 fun String.println() = println(this)
+
+fun BufferedWriter.writeLn(text: String = "") {
+    write(text)
+    newLine()
+}

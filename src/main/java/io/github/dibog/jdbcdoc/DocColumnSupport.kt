@@ -2,7 +2,7 @@ package io.github.dibog.jdbcdoc
 
 
 class DocColumnSupport(private val parent: DocTableSupport, private val columnName: String) {
-    internal var comment: String? = null
+    private var comment: String? = null
 
     fun isPrimaryKey(constraintName: String? = null) {
         parent.primaryKey(constraintName, listOf(columnName))
@@ -16,10 +16,11 @@ class DocColumnSupport(private val parent: DocTableSupport, private val columnNa
         parent.foreignKey(constraintName, columnName, targetTable, targetColumn)
     }
 
-
     fun hasComment(comment: String) {
         this.comment = comment
     }
 
-    fun complete() {}
+    fun complete(): String? {
+        return comment
+    }
 }

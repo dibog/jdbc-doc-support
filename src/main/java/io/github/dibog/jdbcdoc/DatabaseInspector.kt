@@ -232,27 +232,26 @@ class DatabaseInspector(private val jdbc: JdbcTemplate, catalog: String, schema:
         }
     }
 
-
-    fun bringAllTogether() {
-        val columns = loadAllColumns().groupBy { it.name.fullTableName }
-        val checks = loadAllCheckConstraints().groupBy { it.tableName }
-        val primaryKeys = loadAllPrimaryKeys().groupBy { it.tableName }
-        val uniques = loadAllUnique().groupBy { it.tableName }
-        val foreignKeys = loadAllForeignKeys().groupBy { it.srcTableName }
-
-        val tables = columns.keys + checks.keys + primaryKeys.keys + uniques.keys + foreignKeys.keys
-
-        tables.forEach { tableName ->
-            TableDBInfo(
-                    tableName,
-                    columns[tableName] ?: listOf(),
-                    primaryKeys[tableName]?.firstOrNull(),
-                    uniques[tableName] ?: listOf(),
-                    checks[tableName] ?: listOf(),
-                    foreignKeys[tableName] ?: listOf()
-            )
-        }
-    }
+//    fun bringAllTogether() {
+//        val columns = loadAllColumns().groupBy { it.name.fullTableName }
+//        val checks = loadAllCheckConstraints().groupBy { it.tableName }
+//        val primaryKeys = loadAllPrimaryKeys().groupBy { it.tableName }
+//        val uniques = loadAllUnique().groupBy { it.tableName }
+//        val foreignKeys = loadAllForeignKeys().groupBy { it.srcTableName }
+//
+//        val tables = columns.keys + checks.keys + primaryKeys.keys + uniques.keys + foreignKeys.keys
+//
+//        tables.forEach { tableName ->
+//            TableDBInfo(
+//                    tableName,
+//                    columns[tableName] ?: listOf(),
+//                    primaryKeys[tableName]?.firstOrNull(),
+//                    uniques[tableName] ?: listOf(),
+//                    checks[tableName] ?: listOf(),
+//                    foreignKeys[tableName] ?: listOf()
+//            )
+//        }
+//    }
 
     fun getAllTables(): List<TableDBInfo> {
         return tables.values.toList()
@@ -286,12 +285,6 @@ data class ForeignKeyConstraint(
         val constraintName: FullConstraintName,
         val mapping: Map<FullColumnName, FullColumnName>
 ) {
-//    companion object {
-//        fun asMap(src: List<FullColumnName>, dest: List<FullColumnName>): Map<FullColumnName,FullColumnName> {
-//            require(src.size==dest.size)
-//            return src.zip(dest).associate { (src,dest) -> src to test  }
-//        }
-//    }
     constructor(srcConstraintName: FullConstraintName, srcColumnName: FullColumnName, destColumnName: FullColumnName)
         : this(srcConstraintName, mapOf(srcColumnName to destColumnName))
 
@@ -341,7 +334,7 @@ data class UniqueConstraint(
 data class CheckConstraint(
         val constraintName: FullConstraintName,
         val columnNames: List<FullColumnName>,
-        val checkClause: String
+        val checkClause: String?
 ) {
     class Builder(private val constraintName: FullConstraintName, private val checkClause: String) {
         private val columnNames = mutableListOf<FullColumnName>()

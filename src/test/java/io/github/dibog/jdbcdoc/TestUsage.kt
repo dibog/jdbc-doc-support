@@ -38,7 +38,7 @@ class TestUsage {
     jdbc.execute("""
     create table test.foo3 (
         id1 int not null,
-        id2 int not null,
+        id2 int null,
         CONSTRAINT PK_FOO3 PRIMARY KEY (id1, id2),
         CONSTRAINT FK_FOO3_ID1 FOREIGN KEY (id1) REFERENCES test.foo1(id),
         CONSTRAINT FK_FOO3_ID2 FOREIGN KEY (id2) REFERENCES test.foo2(id),
@@ -46,7 +46,9 @@ class TestUsage {
     """.trimIndent())
     }
 
-    private val document = DocumentHelper(jdbc, "public", "test")
+    private val document = DocumentHelper(jdbc, "public", "test", context = Context(
+            "^SYS_.*$".toRegex()
+    ))
 
     @AfterAll
     fun shutdown() {
