@@ -1,12 +1,12 @@
 package io.github.dibog.jdbcdoc
 
 import io.github.dibog.jdbcdoc.entities.FullColumnName
-import io.github.dibog.jdbcdoc.entities.TableVerifier
+import io.github.dibog.jdbcdoc.entities.FullTableName
 
 const val NULL = true
 const val NOT_NULL = false
 
-class DocTableSupport(private val helper: DocumentHelper, private val snippetName: String, tableName: String, private val context: Context) {
+class DocTableSupport(private val helper: DocumentHelper, private val inspector: DatabaseInspector, private val snippetName: String, tableName: String, private val context: Context) {
 
     private val tableInfo = helper.fetchTable(tableName) ?: throw IllegalArgumentException("Unknown table '$tableName'")
     private val userTableBuilder = TableUserInfoBuilder(tableInfo)
@@ -32,6 +32,19 @@ class DocTableSupport(private val helper: DocumentHelper, private val snippetNam
         userTableBuilder.documentForeignKey(constraintName, srcColumn, targetTable, targetColumn)
     }
 
+    fun foreignKey(constraintName: String?=null, srcColumns: List<String>, targetTable: String, targetColumns: List<String>) {
+        val srcTableName = tableInfo.tableName
+        val destTableName = FullTableName(srcTableName.catalog, srcTableName.schema, targetTable)
+
+        userTableBuilder.documentForeignKey(
+                constraintName,
+                srcColumns
+                        .map { srcTableName.toFullColumnName(it) }
+                        .zip( targetColumns.map { destTableName.toFullColumnName(it) } )
+                        .toMap()
+        )
+    }
+
     fun foreignKey(constraintName: String? = null, expectedColumns: Map<FullColumnName, FullColumnName>) {
         userTableBuilder.documentForeignKey(constraintName, expectedColumns)
     }
@@ -52,7 +65,7 @@ class DocTableSupport(private val helper: DocumentHelper, private val snippetNam
         userTableBuilder.documentUniqueKey(constraintName, expectedColumns)
     }
 
-    fun complete(skipCheckedException: Boolean = true) {
+    fun complete() {
         val userTable = userTableBuilder.build()
         val tableVerifier = TableVerifier(tableInfo, userTable, context)
         val errors = tableVerifier.verifyAll()
@@ -61,7 +74,7 @@ class DocTableSupport(private val helper: DocumentHelper, private val snippetNam
             throw AssertionError(errors)
         }
 
-        val tableDocumenter = TableDocumenter(tableInfo, userTable)
-        tableDocumenter.createDocumentation(snippetName)
+        TableDocumenter(tableInfo, userTable).createDocumentation(snippetName)
+        SchemaDocumenter(inspector).createTableDiagram(tableInfo.tableName, "$snippetName-diagram")
     }
 }

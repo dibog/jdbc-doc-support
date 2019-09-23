@@ -6,7 +6,7 @@ import io.github.dibog.jdbcdoc.entities.FullTableName
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.jdbc.core.ResultSetExtractor
 
-class DatabaseInspector(private val jdbc: JdbcTemplate, catalog: String, schema: String) {
+class DatabaseInspector(private val jdbc: JdbcTemplate, catalog: String, schema: String, private val context: Context = Context()) {
     private val tables : Map<FullTableName, TableDBInfo>
     private val dialect : SqlDialect = SqlDialect.createDialect(jdbc.dataSource.connection)
     private val catalog = dialect.catalog(catalog)
@@ -95,13 +95,19 @@ class DatabaseInspector(private val jdbc: JdbcTemplate, catalog: String, schema:
         ) { rs, _ ->
             val fullColumnName = rs.extractFullColumnName()
 
-            val dataType = rs.getString("DATA_TYPE")
+            val dataType = rs.getString("DTD_IDENTIFIER") // "DATA_TYPE"
             val isNullable = rs.getString("IS_NULLABLE")=="YES"
             val position = rs.getInt("ORDINAL_POSITION")
 
             ColumnDBInfo(fullColumnName, dataType, isNullable, position)
+        }.filter {
+            if(context.suppressTables==null) true
+            else {
+                !context.suppressTables.matches(it.name.table)
+            }
         }
     }
+
 
     private fun loadAllCheckConstraints(): List<CheckConstraint> {
         return jdbc.query("""
@@ -125,22 +131,27 @@ class DatabaseInspector(private val jdbc: JdbcTemplate, catalog: String, schema:
 
                     result.values.map { it.build() }
                 }
-        )
+        ).asSequence()
+                .filter {
+                    if(context.suppressCheckConstraints==null) true
+                    else {
+                        !context.suppressCheckConstraints.matches(it.constraintName.constraint)
+                    }
+                }
+                .filter {
+                    if(context.suppressTables==null) true
+                    else {
+                        !context.suppressTables.matches(it.tableName.table)
+                    }
+                }
+                .toList()
     }
 
     private fun loadAllPrimaryKeys(indices: Map<FullConstraintName,KeyColumnUsage>) = loadAllKeyCandidates("PRIMARY KEY", indices).map { (name,columns) ->
         PrimaryKeyConstraint(name, columns)
     }
 
-    private fun loadAllPrimaryKeys() = loadAllKeyCandidates("PRIMARY KEY").map { (name,columns) ->
-        PrimaryKeyConstraint(name, columns)
-    }
-
     private fun loadAllUnique(indices: Map<FullConstraintName,KeyColumnUsage>) = loadAllKeyCandidates("UNIQUE", indices).map { (name,columns) ->
-        UniqueConstraint(name, columns)
-    }
-
-    private fun loadAllUnique() = loadAllKeyCandidates("UNIQUE").map { (name,columns) ->
         UniqueConstraint(name, columns)
     }
 
@@ -163,33 +174,12 @@ class DatabaseInspector(private val jdbc: JdbcTemplate, catalog: String, schema:
                     }
 
                     result
-                })
-    }
-
-    private fun loadAllKeyCandidates(type: String): List<KeyCandidateConstraint> {
-        return jdbc.query("""
-            select tc.*, ccu.column_name
-            from information_schema.table_constraints tc,
-                 information_schema.constraint_column_usage ccu
-            where tc.table_catalog=? and tc.table_schema=?   
-              and tc.CONSTRAINT_TYPE=?
-              and tc.CONSTRAINT_CATALOG=ccu.CONSTRAINT_CATALOG
-              and tc.CONSTRAINT_SCHEMA=ccu.CONSTRAINT_SCHEMA
-              and tc.CONSTRAINT_NAME=ccu.CONSTRAINT_NAME
-            """.trimIndent(),
-                arrayOf(catalog, schema, type),
-                ResultSetExtractor<List<KeyCandidateConstraint>> { rs ->
-                    val result = mutableMapOf<FullConstraintName, KeyCandidateConstraint.Builder>()
-
-                    while(rs.next()) {
-                        val fullConstraintName = rs.extractFullConstraintName()
-                        val fullColumnName = rs.extractFullColumnName()
-                        result.getOrPut(fullConstraintName,  { KeyCandidateConstraint.Builder(fullConstraintName) })
-                                .addColumnName(fullColumnName)
-                    }
-
-                    result.values.map { it.build() }
-                })
+                }).filter {
+            if(context.suppressTables==null) true
+            else {
+                it.columnNames.all { !context.suppressTables.matches(it.table) }
+            }
+        }
     }
 
     private fun loadAllForeignKeys(indices: Map<FullConstraintName,KeyColumnUsage>): List<ForeignKeyConstraint> {
@@ -207,51 +197,14 @@ class DatabaseInspector(private val jdbc: JdbcTemplate, catalog: String, schema:
             val dest = indices[destConstraintName] ?: throw IllegalStateException("Unknown target key '$srcConstraintName'")
 
             ForeignKeyConstraint(srcConstraintName, src.indexMap(dest.columns))
+        }.filter {
+            if(context.suppressTables==null) true
+            else {
+                !(context.suppressTables.matches(it.srcTableName.table) ||
+                        context.suppressTables.matches(it.srcTableName.table))
+            }
         }
     }
-
-    private fun loadAllForeignKeys(): List<ForeignKeyConstraint> {
-        val srcKeys = loadAllKeyCandidates("FOREIGN KEY").associateBy { it.constraintName  }
-        val destKeys = (loadAllKeyCandidates("PRIMARY KEY")+
-                loadAllKeyCandidates("UNIQUE")).associateBy { it.constraintName }
-
-        return jdbc.query("""
-            select * 
-            from information_schema.REFERENTIAL_CONSTRAINTS
-            where CONSTRAINT_CATALOG=?
-              and CONSTRAINT_SCHEMA=?
-            """.trimIndent(),
-                arrayOf(catalog, schema)
-        ) { rs, _ ->
-            val srcConstraintName = rs.extractFullConstraintName()
-            val destConstraintName = rs.extractFullConstraintName("UNIQUE_")
-            val src = srcKeys[srcConstraintName] ?: throw IllegalStateException("Unknown foreign key '$srcConstraintName'")
-            val dest = destKeys[destConstraintName] ?: throw IllegalStateException("Unknown target key '$srcConstraintName'")
-
-            ForeignKeyConstraint(srcConstraintName, src.columnNames.zip(dest.columnNames).toMap())
-        }
-    }
-
-//    fun bringAllTogether() {
-//        val columns = loadAllColumns().groupBy { it.name.fullTableName }
-//        val checks = loadAllCheckConstraints().groupBy { it.tableName }
-//        val primaryKeys = loadAllPrimaryKeys().groupBy { it.tableName }
-//        val uniques = loadAllUnique().groupBy { it.tableName }
-//        val foreignKeys = loadAllForeignKeys().groupBy { it.srcTableName }
-//
-//        val tables = columns.keys + checks.keys + primaryKeys.keys + uniques.keys + foreignKeys.keys
-//
-//        tables.forEach { tableName ->
-//            TableDBInfo(
-//                    tableName,
-//                    columns[tableName] ?: listOf(),
-//                    primaryKeys[tableName]?.firstOrNull(),
-//                    uniques[tableName] ?: listOf(),
-//                    checks[tableName] ?: listOf(),
-//                    foreignKeys[tableName] ?: listOf()
-//            )
-//        }
-//    }
 
     fun getAllTables(): List<TableDBInfo> {
         return tables.values.toList()
@@ -278,6 +231,17 @@ class DatabaseInspector(private val jdbc: JdbcTemplate, catalog: String, schema:
         return srcColumns.zip(destColumns).associate { (srcColumn, destColumn) ->
             toFullColumnName(srcTable, srcColumn) to toFullColumnName(destTable, destColumn)
         }
+    }
+
+    fun getIncomingRelations(table: FullTableName): List<ForeignKeyConstraint> {
+        return foreignKeys.asSequence()
+                .flatMap { it.value.asSequence() }
+                .filter { it.mapping.values.any { it.fullTableName==table } }
+                .toList()
+    }
+
+    fun getOutgoingRelations(table: FullTableName): List<ForeignKeyConstraint> {
+        return foreignKeys[table] ?: listOf()
     }
 }
 

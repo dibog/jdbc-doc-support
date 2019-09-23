@@ -4,7 +4,7 @@ import io.github.dibog.jdbcdoc.entities.FullColumnName
 import io.github.dibog.jdbcdoc.entities.FullConstraintName
 import io.github.dibog.jdbcdoc.entities.FullTableName
 
-/** Column Info object extracted from the data base. */
+/** Table Info object extracted from the data base. */
 class TableDBInfo(
         val tableName: FullTableName,
         val columns: List<ColumnDBInfo>,

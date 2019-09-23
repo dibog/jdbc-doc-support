@@ -193,7 +193,7 @@ abstract class BaseTestDB(private val catalog: String, protected val schema: Str
         extractor.columns.flatMap { it.value }.toTableString(
                 headers = listOf("Column Name", "Data Type", "Is Nullable")
         ) { (columnName, dataType, isNullable) ->
-            listOf(columnName.toString(), dataType.toString(), if (isNullable) "YES" else "NO")
+            listOf(columnName.toString(), dataType, if (isNullable) "YES" else "NO")
         }.println()
     }
 

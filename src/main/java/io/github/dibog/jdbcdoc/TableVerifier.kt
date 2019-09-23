@@ -1,8 +1,4 @@
-package io.github.dibog.jdbcdoc.entities
-
-import io.github.dibog.jdbcdoc.Context
-import io.github.dibog.jdbcdoc.TableDBInfo
-import io.github.dibog.jdbcdoc.TableUserInfo
+package io.github.dibog.jdbcdoc
 
 class TableVerifier(
         private val dbTable: TableDBInfo,
@@ -30,7 +26,7 @@ class TableVerifier(
             val userCol = userTable.columnInfos[name]!!
 
             if(dbCol.dataType!=userCol.dataType) {
-                errors.add("Expected column '$name' to be '${userCol.dataType} but actual was ${dbCol.dataType}")
+                errors.add("Expected column '$name' to be '${userCol.dataType}' but actual was ${dbCol.dataType}")
             }
 
             if(dbCol.isNullable!=userCol.nullability) {
@@ -49,14 +45,16 @@ class TableVerifier(
             dbTable.primaryKey!=null && userTable.primarykey==null ->
                 errors.add("Expected there is no primary key, but actual found '${dbTable.primaryKey.constraintName}' ('${dbTable.primaryKey.columnNames.map { it.column }}') ")
 
-            dbTable.primaryKey!!.columnNames!=userTable.primarykey!!.columnNames -> {
+            else -> {
                 val userPk = userTable.primarykey!!
                 val dbPk = dbTable.primaryKey!!
-                errors.add("Expected primary key '${userPk.constraintName}' on '${userPk.columnNames.map { it.column }}', but actual was on '${dbPk.columnNames.map { it.column }}'.")
-            }
+                if(dbTable.primaryKey!!.constraintName!=userTable.primarykey!!.constraintName) {
+                    errors.add("Expected primary key to be named '${userPk.constraintName}, but actually was named '${dbPk.constraintName}")
+                }
 
-            else -> {
-                // all is okay and fine
+                if(dbTable.primaryKey!!.columnNames!=userTable.primarykey!!.columnNames) {
+                    errors.add("Expected primary key '${userPk.constraintName}' on '${userPk.columnNames.map { it.column }}', but actual was on '${dbPk.columnNames.map { it.column }}'.")
+                }
             }
         }
     }
@@ -76,20 +74,22 @@ class TableVerifier(
         }
 
         userUniqueKeys.forEach { name ->
-            val dbUniqueKey = dbTable.uniques.first { it.constraintName==name }!!
-            val userUniqueKey = userTable.uniqueKeys[name]!!
+            val dbUniqueKey = dbTable.uniques.firstOrNull { it.constraintName==name }
+            if(dbUniqueKey!=null) {
+                val userUniqueKey = userTable.uniqueKeys[name]!!
 
-            if(dbUniqueKey.columnNames!=userUniqueKey.columnNames) {
-                errors.add("Expected unique key '$name' to be on '${userUniqueKey.columnNames.map { it.column }}' but actual was on '${dbUniqueKey.columnNames.map { it.column }}'")
+                if (dbUniqueKey.columnNames != userUniqueKey.columnNames) {
+                    errors.add("Expected unique key '$name' to be on '${userUniqueKey.columnNames.map { it.column }}' but actual was on '${dbUniqueKey.columnNames.map { it.column }}'")
+                }
             }
         }
     }
 
     private fun verifyForeignKey() {
-        val dbUniqueKeys = dbTable.foreignKeys.map { it.constraintName }
-        val userUniqueKeys = userTable.foreignKeys.keys
-        val existsOnlyInDb = dbUniqueKeys - userUniqueKeys
-        val existsOnlyInUser = userUniqueKeys - dbUniqueKeys
+        val dbForeignKeys = dbTable.foreignKeys.map { it.constraintName }
+        val userForeignKeys = userTable.foreignKeys.keys
+        val existsOnlyInDb = dbForeignKeys - userForeignKeys
+        val existsOnlyInUser = userForeignKeys - dbForeignKeys
 
         existsOnlyInDb.forEach { key ->
             errors.add("Found unexpected foreign key '$key'")
@@ -99,12 +99,14 @@ class TableVerifier(
             errors.add("Expected foreign key '$key' does not exist")
         }
 
-        userUniqueKeys.forEach { name ->
-            val dbForeignKey = dbTable.foreignKeys.first { it.constraintName==name }!!
-            val userForeignKey = userTable.foreignKeys[name]!!
+        userForeignKeys.forEach { name ->
+            val dbForeignKey = dbTable.foreignKeys.firstOrNull() { it.constraintName==name }
+            if(dbForeignKey!=null) {
+                val userForeignKey = userTable.foreignKeys[name]!!
 
-            if(dbForeignKey.mapping!=userForeignKey.mapping) {
-                errors.add("Expected unique key '$name' to be on '${userForeignKey.mapping.map { it.value.column }}' but actual was on '${dbForeignKey.mapping.map { it.value.column }}'")
+                if (dbForeignKey.mapping != userForeignKey.mapping) {
+                    errors.add("Expected unique key '$name' to be on '${userForeignKey.mapping.map { it.value.column }}' but actual was on '${dbForeignKey.mapping.map { it.value.column }}'")
+                }
             }
         }
     }
@@ -114,16 +116,9 @@ class TableVerifier(
         val userCheckConstraints = userTable.checkConstraints.keys
 
         val existsOnlyInDb = (dbCheckConstraints - userCheckConstraints)
-        val constraintsRegExp = context.suppressCheckConstraints
-        val existsOnlyInDbFiltered = if (constraintsRegExp == null) {
-            existsOnlyInDb
-        } else {
-            existsOnlyInDb.filter { !constraintsRegExp.containsMatchIn(it.constraint) }
-        }
-
         val existsOnlyInUser = userCheckConstraints - dbCheckConstraints
 
-        existsOnlyInDbFiltered.forEach { key ->
+        existsOnlyInDb.forEach { key ->
             errors.add("Found unexpected check constraint '$key'")
         }
 
