@@ -1,9 +1,11 @@
 package io.github.dibog.jdbcdoc
 
+import io.github.dibog.jdbcdoc.UserDataType.GenericDataType
 import io.github.dibog.jdbcdoc.entities.FullColumnName
 import io.github.dibog.jdbcdoc.entities.FullTableName
 
 const val NULL = true
+const val CAN_BE_NULL = true
 const val NOT_NULL = false
 
 class DocTableSupport(private val helper: DocumentHelper, private val inspector: DatabaseInspector, private val snippetName: String, tableName: String, private val context: Context) {
@@ -12,6 +14,10 @@ class DocTableSupport(private val helper: DocumentHelper, private val inspector:
     private val userTableBuilder = TableUserInfoBuilder(tableInfo)
 
     fun column(columnName: String, expectedDataType: String, expectedNullability: Boolean, action: DocColumnSupport.()->Unit = {}) {
+        column(columnName, GenericDataType(expectedDataType), expectedNullability, action)
+    }
+
+    fun column(columnName: String, expectedDataType: UserDataType, expectedNullability: Boolean, action: DocColumnSupport.()->Unit = {}) {
         val support = DocColumnSupport(this, columnName)
         support.action()
         val comment = support.complete()
@@ -19,7 +25,7 @@ class DocTableSupport(private val helper: DocumentHelper, private val inspector:
         documentColumn(columnName, expectedDataType, expectedNullability, comment)
     }
 
-    private fun documentColumn(name: String, expectedDataType: String, expectedNullability: Boolean, comment: String? = null) {
+    private fun documentColumn(name: String, expectedDataType: UserDataType, expectedNullability: Boolean, comment: String? = null) {
         userTableBuilder.addColumnInfo(name, expectedDataType, expectedNullability, comment)
     }
 

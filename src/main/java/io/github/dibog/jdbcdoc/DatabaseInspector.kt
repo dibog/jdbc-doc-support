@@ -1,5 +1,7 @@
 package io.github.dibog.jdbcdoc
 
+import io.github.dibog.jdbcdoc.DataType.CharacterVarying
+import io.github.dibog.jdbcdoc.DataType.GenericDataType
 import io.github.dibog.jdbcdoc.entities.FullColumnName
 import io.github.dibog.jdbcdoc.entities.FullConstraintName
 import io.github.dibog.jdbcdoc.entities.FullTableName
@@ -95,9 +97,16 @@ class DatabaseInspector(private val jdbc: JdbcTemplate, catalog: String, schema:
         ) { rs, _ ->
             val fullColumnName = rs.extractFullColumnName()
 
-            val dataType = rs.getString("DATA_TYPE") // "DTD_IDENTIFIER"
+            val dataTypeName = rs.getString("DATA_TYPE") // "DTD_IDENTIFIER"
             val isNullable = rs.getString("IS_NULLABLE")=="YES"
             val position = rs.getInt("ORDINAL_POSITION")
+            val dataType = if(dataTypeName.toLowerCase()=="character varying") {
+                val maxLen = rs.getInt("character_maximum_length")
+                CharacterVarying(maxLen)
+            }
+            else {
+                GenericDataType(dataTypeName)
+            }
 
             ColumnDBInfo(fullColumnName, dataType, isNullable, position)
         }.filter {

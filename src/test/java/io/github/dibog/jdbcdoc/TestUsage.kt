@@ -1,5 +1,6 @@
 package io.github.dibog.jdbcdoc
 
+import io.github.dibog.jdbcdoc.UserDataType.CharacterVarying
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
@@ -63,7 +64,7 @@ class TestUsage {
                 hasComment("My own comment for id")
             }
 
-            column("NAME", "CHARACTER VARYING", NOT_NULL) {
+            column("NAME", CharacterVarying(20), NOT_NULL) {
                 isUnique()
                 hasComment("My own comment for name")
             }
@@ -74,7 +75,7 @@ class TestUsage {
     fun documentTableFoo1_variantB() {
         document.table("FOO1", "foo1b") {
             column("ID", "INTEGER", NOT_NULL)
-            column("NAME", "CHARACTER VARYING", NOT_NULL)
+            column("NAME", CharacterVarying(20), NOT_NULL)
 
             primaryKey("PK_FOO1", "ID")
             unique("UC_FOO1_NAME", "NAME")
@@ -92,7 +93,7 @@ class TestUsage {
                 foreignKey(null, "FOO1", "ID")
             }
 
-            column("MY_CHECK", "CHARACTER VARYING", NULL)
+            column("MY_CHECK", CharacterVarying(20), NULL)
 
             check("CH_CHECK", listOf("id", "my_check"))
         }

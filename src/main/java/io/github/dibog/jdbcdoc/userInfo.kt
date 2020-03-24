@@ -50,7 +50,7 @@ class TableUserInfoBuilder(private val table: TableDBInfo) {
                 checkConstraints)
     }
 
-    fun addColumnInfo(columnName: String, dataType: String, nullability: Boolean, comment: String?) {
+    fun addColumnInfo(columnName: String, dataType: UserDataType, nullability: Boolean, comment: String?) {
         val fullColumnName = tableName.toFullColumnName(columnName)
         columnInfos[fullColumnName] = ColumnUserInfo(fullColumnName, dataType, nullability, comment)
     }
@@ -108,5 +108,14 @@ class TableUserInfoBuilder(private val table: TableDBInfo) {
 }
 
 /** Column Info object as specified by the user. */
-data class ColumnUserInfo(val name: FullColumnName, val dataType: String, val nullability: Boolean, val comment: String?)
+data class ColumnUserInfo(val name: FullColumnName, val dataType: UserDataType, val nullability: Boolean, val comment: String?)
 
+
+sealed class UserDataType {
+    data class GenericDataType(val type: String) : UserDataType() {
+        override fun toString() = type
+    }
+    data class CharacterVarying(val maxLength: Int) : UserDataType() {
+        override fun toString() = "character varying($maxLength)"
+    }
+}

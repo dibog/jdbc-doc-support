@@ -78,4 +78,9 @@ class TableDBInfo(
 
 
 /** Column Info object extracted from the data base. */
-data class ColumnDBInfo(val name: FullColumnName, val dataType: String, val isNullable: Boolean, val position: Int)
+data class ColumnDBInfo(val name: FullColumnName, val dataType: DataType, val isNullable: Boolean, val position: Int)
+
+sealed class DataType {
+    data class GenericDataType(val type: String) : DataType()
+    data class CharacterVarying(val maxLength: Int) : DataType()
+}

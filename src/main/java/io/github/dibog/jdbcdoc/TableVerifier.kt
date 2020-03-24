@@ -22,10 +22,19 @@ class TableVerifier(
         }
 
         userColumns.forEach { name ->
-            val dbCol = dbTable.columns.first { it.name==name }!!
-            val userCol = userTable.columnInfos[name]!!
+            val dbCol = dbTable.columns.firstOrNull { it.name==name }
+            if(dbCol==null) {
+                errors.add("Could not find column '$name'")
+                return@forEach
+            }
 
-            if(dbCol.dataType!=userCol.dataType) {
+            val userCol = userTable.columnInfos[name]
+            if(userCol==null) {
+                errors.add("Could not find column info of '$name'")
+                return@forEach
+            }
+
+            if(dbCol.dataType.isNotCompatibleWith(userCol.dataType)) {
                 errors.add("Expected column '$name' to be '${userCol.dataType}' but actual was ${dbCol.dataType}")
             }
 
@@ -36,6 +45,20 @@ class TableVerifier(
             }
         }
     }
+
+    private fun DataType.isCompatibleWith(userDataType: UserDataType): Boolean {
+        return when {
+            this is DataType.GenericDataType && userDataType is UserDataType.GenericDataType ->
+                return this.type == userDataType.type
+
+            this is DataType.CharacterVarying && userDataType is UserDataType.CharacterVarying ->
+                return this.maxLength == userDataType.maxLength
+
+            else -> false
+        }
+    }
+
+    private fun DataType.isNotCompatibleWith(userDataType: UserDataType) = !isCompatibleWith(userDataType)
 
     private fun verifyPK() {
         when {
