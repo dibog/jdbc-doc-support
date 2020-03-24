@@ -95,7 +95,7 @@ class DatabaseInspector(private val jdbc: JdbcTemplate, catalog: String, schema:
         ) { rs, _ ->
             val fullColumnName = rs.extractFullColumnName()
 
-            val dataType = rs.getString("DTD_IDENTIFIER") // "DATA_TYPE"
+            val dataType = rs.getString("DATA_TYPE") // "DTD_IDENTIFIER"
             val isNullable = rs.getString("IS_NULLABLE")=="YES"
             val position = rs.getInt("ORDINAL_POSITION")
 

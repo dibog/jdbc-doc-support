@@ -63,7 +63,7 @@ class TestUsage {
                 hasComment("My own comment for id")
             }
 
-            column("NAME", "VARCHAR(20)", NOT_NULL) {
+            column("NAME", "CHARACTER VARYING", NOT_NULL) {
                 isUnique()
                 hasComment("My own comment for name")
             }
@@ -74,7 +74,7 @@ class TestUsage {
     fun documentTableFoo1_variantB() {
         document.table("FOO1", "foo1b") {
             column("ID", "INTEGER", NOT_NULL)
-            column("NAME", "VARCHAR(20)", NOT_NULL)
+            column("NAME", "CHARACTER VARYING", NOT_NULL)
 
             primaryKey("PK_FOO1", "ID")
             unique("UC_FOO1_NAME", "NAME")
@@ -92,7 +92,7 @@ class TestUsage {
                 foreignKey(null, "FOO1", "ID")
             }
 
-            column("MY_CHECK", "VARCHAR(20)", NULL)
+            column("MY_CHECK", "CHARACTER VARYING", NULL)
 
             check("CH_CHECK", listOf("id", "my_check"))
         }
