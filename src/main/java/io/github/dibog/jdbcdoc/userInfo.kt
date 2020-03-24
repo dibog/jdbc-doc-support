@@ -65,7 +65,7 @@ class TableUserInfoBuilder(private val table: TableDBInfo) {
 
     fun documentForeignKey(constraintName: String?=null, srcColumn: String, targetTable: String, targetColumn: String) {
         val srcColumn = tableName.toFullColumnName(srcColumn)
-        val targetTable = FullTableName(tableName.catalog, tableName.schema, targetTable.toUpperCase())
+        val targetTable = FullTableName(tableName.catalog, tableName.schema, targetTable)
         val destColumn = targetTable.toFullColumnName(targetColumn)
 
         documentForeignKey(constraintName, mapOf(srcColumn to destColumn))
