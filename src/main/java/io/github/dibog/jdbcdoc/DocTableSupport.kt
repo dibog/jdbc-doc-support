@@ -23,6 +23,9 @@ class DocTableSupport(private val helper: DocumentHelper, private val inspector:
         userTableBuilder.addColumnInfo(name, expectedDataType, expectedNullability, comment)
     }
 
+    fun check(constraintName: String, columns: String, clause: String? = null) {
+        userTableBuilder.addCheckConstraint(constraintName, listOf(columns), clause)
+    }
 
     fun check(constraintName: String, columns: List<String>, clause: String? = null) {
         userTableBuilder.addCheckConstraint(constraintName, columns, clause)

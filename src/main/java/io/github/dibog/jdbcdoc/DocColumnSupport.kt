@@ -16,6 +16,10 @@ class DocColumnSupport(private val parent: DocTableSupport, private val columnNa
         parent.foreignKey(constraintName, columnName, targetTable, targetColumn)
     }
 
+    fun check(constraintName: String, clause: String? = null) {
+        parent.check(constraintName, columnName, clause)
+    }
+
     fun hasComment(comment: String) {
         this.comment = comment
     }
